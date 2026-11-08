@@ -63,7 +63,7 @@ export function isAllowedCoverUrl(raw: string): boolean {
 }
 
 export function coverProxy(url: string | undefined) {
-  return url && isAllowedCoverUrl(url) ? `/api/cover?url=${encodeURIComponent(url)}` : undefined;
+  return url && isAllowedCoverUrl(url) ? `/api/cover/?url=${encodeURIComponent(url)}` : undefined;
 }
 
 /** Gutendex author names are "Last, First"; show them the way a reader expects. */

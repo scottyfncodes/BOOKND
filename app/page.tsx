@@ -44,7 +44,7 @@ export default function LibraryPage() {
   const open = useCallback(
     (book: Book, el: HTMLElement | null) => {
       ink.play({ kind: 'open', origin: rectOf(el?.querySelector('.cover') ?? el) });
-      router.push(`/read?book=${encodeURIComponent(book.id)}`);
+      router.push(`/read/?book=${encodeURIComponent(book.id)}`);
     },
     [router],
   );
@@ -101,7 +101,7 @@ export default function LibraryPage() {
           <Mark />
           <span>booknd</span>
         </Link>
-        <Link href="/discover" className="btn btn-quiet hide-narrow" aria-label="Discover free books">
+        <Link href="/discover/" className="btn btn-quiet hide-narrow" aria-label="Discover free books">
           <IconCompass width={18} height={18} /> <span className="label-wide">Discover</span>
         </Link>
         <button className="btn btn-primary" onClick={(e) => (pressInk(e), setAddOpen(true))} disabled={busy} aria-haspopup="dialog">
@@ -128,14 +128,15 @@ export default function LibraryPage() {
           </div>
         ) : empty ? (
           <section className="empty" aria-labelledby="empty-title">
-            <Mark width={44} height={66} style={{ color: 'var(--text)' }} />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/assets/brand/logo.svg" alt="booknd" width={210} height={70} className="empty-logo" />
             <h2 id="empty-title">Your shelf is waiting</h2>
             <p>Bring your own DRM-free EPUBs, or choose from thousands of free public-domain classics.</p>
             <div className="actions">
               <button className="btn btn-primary" onClick={pick}>
                 <IconUpload width={18} height={18} /> Import EPUB
               </button>
-              <Link className="btn btn-quiet" href="/discover">
+              <Link className="btn btn-quiet" href="/discover/">
                 <IconCompass width={18} height={18} /> Discover free books
               </Link>
             </div>
@@ -259,7 +260,7 @@ export default function LibraryPage() {
 
         <footer className="site-foot">
           <span>Your books stay on this device. Clearing this site&apos;s browser data removes them — keep a backup in settings.</span>
-          <Byline appName="BookNd" />
+          <Byline />
         </footer>
       </main>
 
@@ -278,7 +279,7 @@ export default function LibraryPage() {
               </button>
             </li>
             <li>
-              <Link className="menu-item" href="/discover">
+              <Link className="menu-item" href="/discover/">
                 <span className="mi-icon">
                   <IconCompass width={20} height={20} />
                 </span>

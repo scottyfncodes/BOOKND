@@ -1,7 +1,7 @@
 {
   "name": "BookNd",
   "short_name": "BookNd",
-  "description": "A calm, beautiful e-reader for your EPUBs and free public-domain classics.",
+  "description": "BookNd by HaveAnApp: a calm, beautiful e-reader for your EPUBs and free public-domain classics.",
   "id": "/",
   "start_url": "/",
   "scope": "/",

@@ -52,7 +52,7 @@ describe('Gutendex mapping', () => {
     expect(b.key).toBe('gutenberg:1342');
     expect(b.authors).toEqual(['Jane Austen']);
     expect(b.subjects).toEqual(['Courtship', 'England']);
-    expect(b.cover).toBe('/api/cover?url=' + encodeURIComponent('https://www.gutenberg.org/cache/epub/1342/pg1342.cover.medium.jpg'));
+    expect(b.cover).toBe('/api/cover/?url=' + encodeURIComponent('https://www.gutenberg.org/cache/epub/1342/pg1342.cover.medium.jpg'));
     expect(isAllowedEpubUrl(b.epubUrl)).toBe(true);
     expect(page.next).toBe(2);
   });
@@ -90,7 +90,7 @@ describe('Standard Ebooks feed', () => {
     expect(b.authors).toEqual(['Jane Austen']);
     expect(b.epubUrl).toMatch(/jane-austen_pride-and-prejudice\.epub$/);
     expect(b.subjects).toEqual(['Fiction']);
-    expect(b.cover).toContain('/api/cover?url=');
+    expect(b.cover).toContain('/api/cover/?url=');
     expect(b.pageUrl).toBe('https://standardebooks.org/ebooks/jane-austen/pride-and-prejudice');
   });
 });

@@ -1,8 +1,8 @@
 /* BookNd service worker: caches the app shell so the library and reader open offline.
  * Books themselves live in IndexedDB on the device; they are never put in this cache,
  * and nothing from /api/ (catalog, downloads) is cached here. */
-const VERSION = 'booknd-v1';
-const SHELL = ['/', '/read', '/discover', '/manifest.webmanifest', '/fonts/libre-baskerville-400.woff2', '/fonts/libre-baskerville-400-italic.woff2', '/fonts/libre-baskerville-700.woff2', '/fonts/inter-var.woff2'];
+const VERSION = 'booknd-v3';
+const SHELL = ['/', '/read/', '/discover/', '/manifest.webmanifest', '/assets/brand/logo.svg', '/assets/icons/icon.svg', '/assets/icons/icon-192.png', '/fonts/libre-baskerville-400.woff2', '/fonts/libre-baskerville-400-italic.woff2', '/fonts/libre-baskerville-700.woff2', '/fonts/inter-var.woff2'];
 
 async function precache() {
   const cache = await caches.open(VERSION);

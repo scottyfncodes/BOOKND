@@ -54,7 +54,7 @@ export default function DiscoverPage() {
       setBooks([]);
     }
     try {
-      const res = await fetch(`/api/catalog?source=${src}&q=${encodeURIComponent(q)}&page=${page}`);
+      const res = await fetch(`/api/catalog/?source=${src}&q=${encodeURIComponent(q)}&page=${page}`);
       const data = (await res.json()) as CatalogPage & { error?: string };
       if (id !== req.current) return;
       if (!res.ok) throw new Error(data.error || 'The catalog is unavailable right now.');
@@ -83,7 +83,7 @@ export default function DiscoverPage() {
   async function add(book: CatalogBook) {
     setAdding(book.key);
     try {
-      const res = await fetch(`/api/download?url=${encodeURIComponent(book.epubUrl)}`);
+      const res = await fetch(`/api/download/?url=${encodeURIComponent(book.epubUrl)}`);
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error((data as { error?: string }).error || 'The download failed.');
@@ -101,7 +101,7 @@ export default function DiscoverPage() {
 
   function openBook(id: string, el?: Element | null) {
     ink.play({ kind: 'open', origin: rectOf(el ?? undefined) });
-    router.push(`/read?book=${encodeURIComponent(id)}`);
+    router.push(`/read/?book=${encodeURIComponent(id)}`);
   }
 
   const info = SOURCES[source];
@@ -234,7 +234,7 @@ export default function DiscoverPage() {
             </a>
             . These works are in the public domain in the United States; check the copyright laws of your country before downloading.
           </span>
-          <Byline appName="BookNd" />
+          <Byline />
         </footer>
       </main>
 

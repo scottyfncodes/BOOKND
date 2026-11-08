@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
-    "e2e": "node tests/e2e.mjs"
+    "e2e": "node tests/e2e.mjs",
+    "export:static": "node scripts/export-static.mjs"
   },
   "dependencies": {
     "@xmldom/xmldom": "0.8.11",

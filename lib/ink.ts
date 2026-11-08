@@ -1,3 +1,5 @@
+import { BRAND } from './brand';
+
 /**
  * Liquid Ink motion engine.
  *
@@ -101,7 +103,7 @@ export function runInk(canvas: HTMLCanvasElement, req: InkRequest): InkRun {
   const scale = Math.min(window.devicePixelRatio || 1, 2) * 0.5;
   canvas.width = Math.ceil(W * scale);
   canvas.height = Math.ceil(H * scale);
-  const color = req.color ?? '#242522';
+  const color = req.color ?? BRAND.ink;
   const o = req.origin ?? { x: W / 2 - 1, y: H / 2 - 1, width: 2, height: 2 };
   const cx = o.x + o.width / 2;
   const cy = o.y + o.height / 2;

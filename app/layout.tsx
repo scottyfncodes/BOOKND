@@ -8,6 +8,16 @@ export const metadata: Metadata = {
   applicationName: 'BookNd',
   authors: [{ name: 'HaveAnApp' }],
   manifest: '/manifest.webmanifest',
+  // App icon set from the approved master (GITCRAFT icons.snippet.json)
+  icons: {
+    icon: [
+      { url: '/assets/icons/icon.svg', type: 'image/svg+xml' },
+      { url: '/assets/icons/favicon.ico', sizes: '48x48' },
+      { url: '/assets/icons/favicon-32.png', type: 'image/png', sizes: '32x32' },
+      { url: '/assets/icons/favicon-16.png', type: 'image/png', sizes: '16x16' },
+    ],
+    apple: [{ url: '/assets/icons/apple-touch-icon.png', sizes: '180x180' }],
+  },
   appleWebApp: { capable: true, title: 'BookNd', statusBarStyle: 'default' },
   formatDetection: { telephone: false },
 };

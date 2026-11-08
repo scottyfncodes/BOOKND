@@ -262,7 +262,7 @@ async function desktop() {
   check('desktop reader renders (two-page spread)', true, `columns: ${spread}`);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   check('no horizontal page scroll on desktop', !overflow);
-  await page.goto(`${BASE}/discover`);
+  await page.goto(`${BASE}/discover/`);
   await page.waitForTimeout(1500);
   await page.screenshot({ path: `${OUT}/22-discover-desktop.png` });
   check('no page errors on desktop', errors.length === 0, errors.slice(0, 3).join(' | '));

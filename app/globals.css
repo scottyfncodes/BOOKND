@@ -1284,3 +1284,13 @@ input[type='range'] {
   color: var(--accent-text);
   font-weight: 500;
 }
+
+.empty-logo {
+  width: 200px;
+  height: auto;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .empty-logo {
+    filter: invert(0.92) hue-rotate(180deg);
+  }
+}

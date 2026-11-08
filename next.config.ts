@@ -15,6 +15,8 @@ const csp = [
 
 const config: NextConfig = {
   reactStrictMode: true,
+  // /discover/ and /read/ resolve to folder index pages on any static host, too (offline snapshot, QA tooling)
+  trailingSlash: true,
   poweredByHeader: false,
   async headers() {
     return [
