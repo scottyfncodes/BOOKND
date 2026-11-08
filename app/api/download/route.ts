@@ -27,7 +27,10 @@ export async function GET(req: NextRequest) {
       if (!isAllowedEpubUrl(next.split('?')[0])) return Response.json({ error: 'The catalog redirected somewhere unexpected.' }, { status: 502 });
       res = await fetchUpstream(next, { timeoutMs: 45000, redirect: 'manual' });
     }
-    if (!res.ok || !res.body) return Response.json({ error: `The catalog returned ${res.status}.` }, { status: 502 });
+    if (res.status === 404) {
+      return Response.json({ error: 'This title has no EPUB edition to download (it may be an audiobook). Try another edition.' }, { status: 404 });
+    }
+    if (!res.ok || !res.body) return Response.json({ error: `The catalog couldn’t send this book right now (error ${res.status}). Please try again.` }, { status: 502 });
     const len = Number(res.headers.get('content-length') ?? 0);
     if (len > MAX_BYTES) return Response.json({ error: 'This book is too large to download.' }, { status: 413 });
     // An EPUB is a ZIP: check the signature before streaming, so a web page is never saved as a book.
