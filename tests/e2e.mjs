@@ -239,6 +239,29 @@ async function phone() {
   await browser.close();
 }
 
+/** A book that was never opened while online must still open offline (the EPUB engine is cached ahead of time). */
+async function offlineFirstOpen() {
+  const browser = await chromium.launch();
+  const { defaultBrowserType: _d, ...iphone } = devices['iPhone 13'];
+  const ctx = await browser.newContext({ ...iphone });
+  const page = await ctx.newPage();
+  await page.goto(BASE);
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.reload();
+  await page.setInputFiles('[data-testid=epub-input]', EPUB);
+  await page.waitForSelector('.book-card');
+  await page.waitForTimeout(5000); // idle warm-up hands the reader's chunks to the service worker
+  await ctx.setOffline(true);
+  await page.goto(`${BASE}/`);
+  await page.waitForSelector('.book-card', { timeout: 10000 });
+  await page.click('.book-card .book-open');
+  const ok = await readerReady(page).then(() => true).catch(() => false);
+  await page.keyboard.press('ArrowRight'); // past the cover image to the first text page
+  await page.waitForTimeout(600);
+  check('a book never opened online still opens offline', ok && !!(await visibleText(page)));
+  await browser.close();
+}
+
 async function desktop() {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
@@ -270,6 +293,7 @@ async function desktop() {
 }
 
 await phone();
+await offlineFirstOpen();
 await desktop();
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} checks passed`);

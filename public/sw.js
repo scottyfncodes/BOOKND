@@ -1,7 +1,7 @@
 /* BookNd service worker: caches the app shell so the library and reader open offline.
  * Books themselves live in IndexedDB on the device; they are never put in this cache,
  * and nothing from /api/ (catalog, downloads) is cached here. */
-const VERSION = 'booknd-v3';
+const VERSION = 'booknd-v4';
 const SHELL = ['/', '/read/', '/discover/', '/manifest.webmanifest', '/assets/brand/logo.svg', '/assets/icons/icon.svg', '/assets/icons/icon-192.png', '/fonts/libre-baskerville-400.woff2', '/fonts/libre-baskerville-400-italic.woff2', '/fonts/libre-baskerville-700.woff2', '/fonts/inter-var.woff2'];
 
 async function precache() {
@@ -35,6 +35,23 @@ self.addEventListener('activate', (event) => {
       .keys()
       .then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
+  );
+});
+
+// The page sends the app chunks it has loaded (including the on-demand EPUB engine) so they survive offline.
+self.addEventListener('message', (event) => {
+  const data = event.data || {};
+  if (data.type !== 'cache-urls' || !Array.isArray(data.urls)) return;
+  event.waitUntil(
+    caches.open(VERSION).then((cache) =>
+      Promise.all(
+        data.urls
+          .filter((u) => typeof u === 'string' && new URL(u).origin === self.location.origin && /^\/(_next\/static|fonts)\//.test(new URL(u).pathname))
+          .map(async (u) => {
+            if (!(await cache.match(u))) await cache.add(u).catch(() => {});
+          }),
+      ),
+    ),
   );
 });
 
