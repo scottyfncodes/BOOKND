@@ -495,7 +495,7 @@ export function Reader({ bookId }: { bookId: string }) {
   function close() {
     savePosition(true);
     ink.play({ kind: 'close' });
-    router.push('/');
+    router.push('/library/');
   }
 
   const pct = loc ? Math.round(loc.progress * 100) : 0;
@@ -555,7 +555,7 @@ export function Reader({ bookId }: { bookId: string }) {
                 ? 'It may have been removed, or this browser’s data was cleared.'
                 : 'The EPUB may be damaged or use features BookNd can’t display yet.'}
             </p>
-            <Link href="/" className="btn btn-primary">
+            <Link href="/library/" className="btn btn-primary">
               Back to library
             </Link>
           </div>

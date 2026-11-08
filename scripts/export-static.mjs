@@ -16,7 +16,7 @@ mkdirSync(out, { recursive: true });
 cpSync(join(root, 'public'), out, { recursive: true });
 cpSync(join(root, '.next/static'), join(out, '_next/static'), { recursive: true });
 copyFileSync(join(app, 'index.html'), join(out, 'index.html'));
-for (const page of ['discover', 'read']) {
+for (const page of ['discover', 'library', 'read']) {
   mkdirSync(join(out, page), { recursive: true });
   copyFileSync(join(app, `${page}.html`), join(out, page, 'index.html'));
 }

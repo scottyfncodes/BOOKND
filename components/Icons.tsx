@@ -23,6 +23,7 @@ export const IconBookmark = ({ filled, ...p }: P & { filled?: boolean }) => (<sv
 export const IconNotes = (p: P) => (<svg {...base(p)}><path d="M5 4h14v16H5z" /><path d="M9 9h6M9 13h6M9 17h3" /></svg>);
 export const IconMore = (p: P) => (<svg {...base(p)}><circle cx="5" cy="12" r="1" fill="currentColor" /><circle cx="12" cy="12" r="1" fill="currentColor" /><circle cx="19" cy="12" r="1" fill="currentColor" /></svg>);
 export const IconUpload = (p: P) => (<svg {...base(p)}><path d="M12 16V4M7 9l5-5 5 5M5 20h14" /></svg>);
+export const IconLibrary = (p: P) => (<svg {...base(p)}><path d="M5 4h3v16H5zM10 4h3v16h-3z" /><path d="M15.2 5.2l2.9-.8 3.6 15.4-2.9.7z" /></svg>);
 export const IconCompass = (p: P) => (<svg {...base(p)}><circle cx="12" cy="12" r="8.5" /><path d="M15.5 8.5l-2 5-5 2 2-5z" /></svg>);
 export const IconSettings = (p: P) => (<svg {...base(p)}><path d="M4 7h10M18 7h2M4 17h4M12 17h8" /><circle cx="16" cy="7" r="2" /><circle cx="10" cy="17" r="2" /></svg>);
 export const IconTrash = (p: P) => (<svg {...base(p)}><path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13" /></svg>);

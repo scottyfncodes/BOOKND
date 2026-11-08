@@ -78,7 +78,7 @@ async function phone() {
   // "Blocked script execution … sandboxed" is the browser confirming the EPUB's script was refused (expected).
   page.on('console', (m) => m.type() === 'error' && !/Failed to load resource|Blocked script execution in 'about:srcdoc'/.test(m.text()) && errors.push(`${m.text()} @ ${m.location().url}:${m.location().lineNumber}:${m.location().columnNumber}`));
 
-  await page.goto(BASE);
+  await page.goto(`${BASE}/library/`);
   await page.waitForSelector('#empty-title');
   check('empty library shows its empty state', true);
   await page.screenshot({ path: `${OUT}/01-empty-phone.png` });
@@ -208,7 +208,7 @@ async function phone() {
 
   const page2 = await ctx.newPage();
   page2.on('pageerror', (e) => errors.push(e.message));
-  await page2.goto(BASE);
+  await page2.goto(`${BASE}/library/`);
   await page2.waitForSelector('.hero');
   await page2.click('.hero .btn-primary');
   await readerReady(page2);
@@ -220,13 +220,13 @@ async function phone() {
   check('highlights are restored on reopen', hlAgain > 0);
 
   // Offline: the app shell and the stored book open without a network
-  await page2.goto(BASE);
+  await page2.goto(`${BASE}/library/`);
   await page2.evaluate(() => navigator.serviceWorker.ready);
   await page2.reload();
   await page2.waitForSelector('.book-card');
   await page2.waitForTimeout(1500);
   await ctx.setOffline(true);
-  await page2.goto(`${BASE}/`);
+  await page2.goto(`${BASE}/library/`);
   const offlineLib = await page2.waitForSelector('.book-card', { timeout: 10000 }).catch(() => null);
   check('library opens offline', !!offlineLib);
   await page2.click('.book-card .book-open');
@@ -245,14 +245,14 @@ async function offlineFirstOpen() {
   const { defaultBrowserType: _d, ...iphone } = devices['iPhone 13'];
   const ctx = await browser.newContext({ ...iphone });
   const page = await ctx.newPage();
-  await page.goto(BASE);
+  await page.goto(`${BASE}/library/`);
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.reload();
   await page.setInputFiles('[data-testid=epub-input]', EPUB);
   await page.waitForSelector('.book-card');
   await page.waitForTimeout(5000); // idle warm-up hands the reader's chunks to the service worker
   await ctx.setOffline(true);
-  await page.goto(`${BASE}/`);
+  await page.goto(`${BASE}/library/`);
   await page.waitForSelector('.book-card', { timeout: 10000 });
   await page.click('.book-card .book-open');
   const ok = await readerReady(page).then(() => true).catch(() => false);
@@ -268,7 +268,7 @@ async function desktop() {
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(BASE);
+  await page.goto(`${BASE}/library/`);
   await page.setInputFiles('[data-testid=epub-input]', EPUB);
   await page.waitForSelector('.book-card');
   await page.screenshot({ path: `${OUT}/20-library-desktop.png` });
@@ -285,7 +285,9 @@ async function desktop() {
   check('desktop reader renders (two-page spread)', true, `columns: ${spread}`);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   check('no horizontal page scroll on desktop', !overflow);
-  await page.goto(`${BASE}/discover/`);
+  await page.goto(`${BASE}/`);
+  const opensOnDiscover = await page.waitForSelector('h1:has-text("Discover")', { timeout: 10000 }).catch(() => null);
+  check('the app opens on Discover', !!opensOnDiscover && !!(await page.$("a[href='/library/']")));
   await page.waitForTimeout(1500);
   await page.screenshot({ path: `${OUT}/22-discover-desktop.png` });
   check('no page errors on desktop', errors.length === 0, errors.slice(0, 3).join(' | '));

@@ -1,299 +1,287 @@
 'use client';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useMemo, useState, type MouseEvent } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BookCover } from '@/components/BookCover';
 import { Byline } from '@/components/Byline';
-import { IconCompass, IconMore, IconPlus, IconSettings, IconUpload, Mark } from '@/components/Icons';
-import { LibrarySettings } from '@/components/LibrarySettings';
-import { BookDetails } from '@/components/BookDetails';
+import { IconLibrary, IconSearch, Mark } from '@/components/Icons';
 import { Sheet } from '@/components/Sheet';
-import { useEpubImport } from '@/components/useEpubImport';
-import { db, type Book } from '@/lib/db';
+import { useToast } from '@/components/Toasts';
+import type { CatalogBook, CatalogPage } from '@/lib/catalog';
+import { db } from '@/lib/db';
 import { useLive } from '@/lib/hooks';
 import { ink, rectOf } from '@/lib/ink';
+import { describeImportError, importEpub } from '@/lib/library';
 
-type Sort = 'recent' | 'title' | 'author' | 'added';
+type Source = CatalogBook['source'];
 
-const recentOf = (b: Book) => b.lastOpenedAt ?? b.addedAt;
-const pct = (p?: number) => Math.round((p ?? 0) * 100);
+const SOURCES: Record<Source, { label: string; blurb: string; site: string }> = {
+  'standard-ebooks': {
+    label: 'Standard Ebooks',
+    blurb: 'Carefully typeset, proofread editions of public-domain classics. Showing their newest releases.',
+    site: 'https://standardebooks.org',
+  },
+  gutenberg: {
+    label: 'Project Gutenberg',
+    blurb: 'Over 70,000 free ebooks. Showing the most-downloaded titles; search by title or author.',
+    site: 'https://www.gutenberg.org',
+  },
+};
 
-function pressInk(e: MouseEvent<HTMLElement>) {
-  if (!ink.enabled()) return;
-  const el = e.currentTarget;
-  const r = el.getBoundingClientRect();
-  const dot = document.createElement('span');
-  const size = Math.max(r.width, r.height) * 2.2;
-  dot.className = 'ink-press';
-  Object.assign(dot.style, { left: `${e.clientX - r.left}px`, top: `${e.clientY - r.top}px`, width: `${size}px`, height: `${size}px` });
-  el.appendChild(dot);
-  setTimeout(() => dot.remove(), 650);
-}
-
-export default function LibraryPage() {
+export default function DiscoverPage() {
   const router = useRouter();
-  const books = useLive(() => db().books.toArray(), []);
+  const toast = useToast();
+  const [source, setSource] = useState<Source>('standard-ebooks');
+  const [input, setInput] = useState('');
   const [query, setQuery] = useState('');
-  const [sort, setSort] = useState<Sort>('recent');
-  const [addOpen, setAddOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [details, setDetails] = useState<Book | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const { pick, picker, busy, importFiles } = useEpubImport(() => setAddOpen(false));
+  const [books, setBooks] = useState<CatalogBook[]>([]);
+  const [next, setNext] = useState<number | null>(null);
+  const [state, setState] = useState<'loading' | 'ready' | 'error' | 'offline'>('loading');
+  const [error, setError] = useState('');
+  const [selected, setSelected] = useState<CatalogBook | null>(null);
+  const [adding, setAdding] = useState<string | null>(null);
+  const req = useRef(0);
+  const owned = useLive(async () => new Map((await db().books.toArray()).filter((b) => b.sourceKey).map((b) => [b.sourceKey!, b.id])), [], new Map());
 
-  const open = useCallback(
-    (book: Book, el: HTMLElement | null) => {
-      ink.play({ kind: 'open', origin: rectOf(el?.querySelector('.cover') ?? el) });
-      router.push(`/read/?book=${encodeURIComponent(book.id)}`);
-    },
-    [router],
-  );
+  const load = useCallback(async (src: Source, q: string, page = 1) => {
+    const id = ++req.current;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setState('offline');
+      return;
+    }
+    if (page === 1) {
+      setState('loading');
+      setBooks([]);
+    }
+    try {
+      const res = await fetch(`/api/catalog/?source=${src}&q=${encodeURIComponent(q)}&page=${page}`);
+      const data = (await res.json()) as CatalogPage & { error?: string };
+      if (id !== req.current) return;
+      if (!res.ok) throw new Error(data.error || 'The catalog is unavailable right now.');
+      setBooks((b) => (page === 1 ? data.books : [...b, ...data.books]));
+      setNext(data.next ?? null);
+      setState('ready');
+    } catch (err) {
+      if (id !== req.current) return;
+      setError(err instanceof Error ? err.message : 'The catalog is unavailable right now.');
+      setState(navigator.onLine ? 'error' : 'offline');
+    }
+  }, []);
 
-  const continueBook = useMemo(
-    () =>
-      (books ?? [])
-        .filter((b) => b.lastOpenedAt && (b.progress ?? 0) < 0.995)
-        .sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0))[0],
-    [books],
-  );
-  const recent = useMemo(
-    () =>
-      (books ?? [])
-        .filter((b) => b.lastOpenedAt && b.id !== continueBook?.id)
-        .sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0))
-        .slice(0, 8),
-    [books, continueBook],
-  );
-  const shelf = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const list = (books ?? []).filter((b) => !q || `${b.title} ${b.author}`.toLowerCase().includes(q));
-    const cmp: Record<Sort, (a: Book, b: Book) => number> = {
-      recent: (a, b) => recentOf(b) - recentOf(a),
-      added: (a, b) => b.addedAt - a.addedAt,
-      title: (a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }),
-      author: (a, b) => a.author.localeCompare(b.author, undefined, { sensitivity: 'base' }) || a.title.localeCompare(b.title),
-    };
-    return list.sort(cmp[sort]);
-  }, [books, query, sort]);
+  useEffect(() => {
+    // fetching the catalog is the effect's job; load() updates state as results arrive
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load(source, query);
+  }, [source, query, load]);
 
-  const loading = books === undefined;
-  const empty = !loading && books.length === 0;
+  useEffect(() => {
+    const on = () => void load(source, query);
+    window.addEventListener('online', on);
+    return () => window.removeEventListener('online', on);
+  }, [source, query, load]);
+
+  async function add(book: CatalogBook) {
+    setAdding(book.key);
+    try {
+      const res = await fetch(`/api/download/?url=${encodeURIComponent(book.epubUrl)}`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error((data as { error?: string }).error || 'The download failed.');
+      }
+      const bytes = await res.arrayBuffer();
+      const result = await importEpub(bytes, { source: book.source, sourceKey: book.key, fallbackTitle: book.title, fallbackAuthor: book.authors[0] });
+      toast(result.status === 'duplicate' ? `“${result.book.title}” is already in your library.` : `“${result.book.title}” is on your shelf and ready offline.`, {
+        action: { label: 'Read', run: () => openBook(result.book.id) },
+      });
+    } catch (err) {
+      toast(err instanceof Error && !(err.name === 'EpubError' || err.name === 'StorageFullError') ? err.message : describeImportError(err), { tone: 'error' });
+    }
+    setAdding(null);
+  }
+
+  function openBook(id: string, el?: Element | null) {
+    ink.play({ kind: 'open', origin: rectOf(el ?? undefined) });
+    router.push(`/read/?book=${encodeURIComponent(id)}`);
+  }
+
+  const info = SOURCES[source];
 
   return (
-    <div
-      className="page"
-      onDragOver={(e) => {
-        if (e.dataTransfer.types.includes('Files')) {
-          e.preventDefault();
-          setDragging(true);
-        }
-      }}
-      onDragLeave={(e) => e.currentTarget === e.target && setDragging(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setDragging(false);
-        if (e.dataTransfer.files.length) void importFiles(e.dataTransfer.files);
-      }}
-    >
-      {picker}
+    <div className="page">
       <header className="topbar">
-        <Link href="/" className="wordmark grow" aria-label="BookNd library">
+        <Link href="/" className="wordmark grow" aria-label="BookNd home: Discover">
           <Mark />
           <span>booknd</span>
         </Link>
-        <Link href="/discover/" className="btn btn-quiet hide-narrow" aria-label="Discover free books">
-          <IconCompass width={18} height={18} /> <span className="label-wide">Discover</span>
+        <Link href="/library/" className="btn btn-quiet hide-narrow" aria-label="Your library">
+          <IconLibrary width={18} height={18} /> <span className="label-wide">Your library</span>
         </Link>
-        <button className="btn btn-primary" onClick={(e) => (pressInk(e), setAddOpen(true))} disabled={busy} aria-haspopup="dialog">
-          <IconPlus width={18} height={18} /> {busy ? 'Adding…' : 'Add book'}
-        </button>
-        <button className="icon-btn" onClick={() => setSettingsOpen(true)} aria-label="Library settings and backup" aria-haspopup="dialog">
-          <IconSettings />
-        </button>
       </header>
+      <main id="main">
+        <div style={{ marginTop: 24 }}>
+          <p className="eyebrow">Free public-domain books</p>
+          <h1 className="serif" style={{ fontWeight: 400, fontSize: 'clamp(28px, 3vw + 16px, 44px)', lineHeight: 1.15, margin: '8px 0 0' }}>
+            Discover
+          </h1>
+        </div>
 
-      <main id="main" aria-busy={loading || busy}>
-        <h1 className="sr-only">Your library</h1>
-        {dragging ? (
-          <div className="notice" style={{ marginTop: 16, justifyContent: 'center' }}>
-            Drop EPUB files to add them to your library
-          </div>
-        ) : null}
+        <div className="seg" role="tablist" aria-label="Catalog" style={{ marginTop: 24, maxWidth: 440 }}>
+          {(Object.keys(SOURCES) as Source[]).map((s) => (
+            <button key={s} role="tab" aria-selected={source === s} onClick={() => setSource(s)}>
+              {SOURCES[s].label}
+            </button>
+          ))}
+        </div>
+        <p className="muted" style={{ fontSize: 14, margin: '12px 0 16px', maxWidth: 560 }}>
+          {info.blurb}
+        </p>
+        <form
+          role="search"
+          className="toolbar"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setQuery(input.trim());
+          }}
+          style={{ marginBottom: 32 }}
+        >
+          <label className="sr-only" htmlFor="cat-search">
+            Search {info.label}
+          </label>
+          <input id="cat-search" className="field" type="search" placeholder="Search titles and authors" value={input} onChange={(e) => setInput(e.target.value)} enterKeyHint="search" autoComplete="off" />
+          <button className="btn btn-primary" type="submit" aria-label="Search">
+            <IconSearch width={18} height={18} />
+            <span className="label-wide">Search</span>
+          </button>
+        </form>
 
-        {loading ? (
-          <div className="shelf" style={{ marginTop: 48 }} aria-hidden="true">
-            {Array.from({ length: 6 }, (_, i) => (
-              <div key={i} className="cover" style={{ boxShadow: 'none', opacity: 0.5 }} />
+        {state === 'loading' ? (
+          <ul className="shelf" aria-busy="true" aria-label="Loading books">
+            {Array.from({ length: 10 }, (_, i) => (
+              <li key={i}>
+                <div className="cover" style={{ boxShadow: 'none', opacity: 0.45 }} />
+              </li>
             ))}
-          </div>
-        ) : empty ? (
-          <section className="empty" aria-labelledby="empty-title">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/assets/brand/logo.svg" alt="booknd" width={210} height={70} className="empty-logo" />
-            <h2 id="empty-title">Your shelf is waiting</h2>
-            <p>Bring your own DRM-free EPUBs, or choose from thousands of free public-domain classics.</p>
+          </ul>
+        ) : state === 'offline' ? (
+          <div className="empty" role="status">
+            <h2>You’re offline</h2>
+            <p>Discover needs a connection. Every book already in your library still opens offline.</p>
             <div className="actions">
-              <button className="btn btn-primary" onClick={pick}>
-                <IconUpload width={18} height={18} /> Import EPUB
-              </button>
-              <Link className="btn btn-quiet" href="/discover/">
-                <IconCompass width={18} height={18} /> Discover free books
+              <Link className="btn btn-primary" href="/library/">
+                Go to your library
               </Link>
             </div>
-          </section>
+          </div>
+        ) : state === 'error' ? (
+          <div className="empty" role="alert">
+            <h2>The catalog didn’t answer</h2>
+            <p>{error}</p>
+            <div className="actions">
+              <button className="btn btn-primary" onClick={() => load(source, query)}>
+                Try again
+              </button>
+            </div>
+          </div>
+        ) : books.length === 0 ? (
+          <div className="empty" role="status">
+            <h2>No books found</h2>
+            <p>{query ? `Nothing matches “${query}” in ${info.label}.` : 'This catalog returned no books.'}</p>
+            {source === 'standard-ebooks' && query ? (
+              <div className="actions">
+                <button className="btn btn-quiet" onClick={() => setSource('gutenberg')}>
+                  Search Project Gutenberg
+                </button>
+              </div>
+            ) : null}
+          </div>
         ) : (
           <>
-            {continueBook ? (
-              <section className="hero" aria-labelledby="continue-title">
-                <button className="book-open" onClick={(e) => open(continueBook, e.currentTarget)} aria-label={`Continue reading ${continueBook.title}`}>
-                  <BookCover cover={continueBook.cover} title={continueBook.title} author={continueBook.author} />
-                </button>
-                <div style={{ minWidth: 0 }}>
-                  <p className="eyebrow" id="continue-title">
-                    Continue reading
-                  </p>
-                  <h2 className="clamp-3">{continueBook.title}</h2>
-                  <p className="muted" style={{ margin: 0 }}>
-                    {continueBook.author}
-                  </p>
-                  <div className="hero-progress">
-                    <div className="progress" role="progressbar" aria-label="Reading progress" aria-valuenow={pct(continueBook.progress)} aria-valuemin={0} aria-valuemax={100}>
-                      <span style={{ width: `${pct(continueBook.progress)}%` }} />
-                    </div>
-                    <span>{pct(continueBook.progress)}%</span>
-                  </div>
-                  {continueBook.chapter ? (
-                    <p className="muted clamp-2" style={{ fontSize: 14, margin: '0 0 16px' }}>
-                      {continueBook.chapter}
-                    </p>
-                  ) : null}
-                  <button className="btn btn-primary" onClick={(e) => open(continueBook, e.currentTarget.closest('.hero'))}>
-                    Continue
+            <ul className="shelf">
+              {books.map((b) => (
+                <li key={b.key} className="book-card">
+                  <button className="book-open" onClick={() => setSelected(b)} aria-label={`${b.title} by ${b.authors.join(', ') || 'unknown'}`} aria-haspopup="dialog">
+                    <BookCover src={b.cover} title={b.title} author={b.authors[0]} />
                   </button>
-                </div>
-              </section>
-            ) : null}
-
-            {recent.length ? (
-              <section className="section" aria-labelledby="recent-title">
-                <div className="section-head">
-                  <h2 className="section-title" id="recent-title">
-                    Recently opened
-                  </h2>
-                </div>
-                <ul className="recent list" style={{ display: 'flex' }}>
-                  {recent.map((b) => (
-                    <li key={b.id} style={{ border: 0 }}>
-                      <button className="book-open" onClick={(e) => open(b, e.currentTarget)} aria-label={`Open ${b.title}`} style={{ width: '100%' }}>
-                        <BookCover cover={b.cover} title={b.title} author={b.author} />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
-
-            <section className="section" aria-labelledby="all-title">
-              <div className="section-head">
-                <h2 className="section-title" id="all-title">
-                  All books <span className="muted" style={{ fontSize: 15, fontFamily: 'var(--sans)' }}>{books.length}</span>
-                </h2>
+                  <div>
+                    <h3 className="book-title clamp-2">{b.title}</h3>
+                    <p className="book-author clamp-2">
+                      {b.authors.join(', ') || 'Unknown author'}
+                      {owned?.has(b.key) ? <span className="in-lib"> · In library</span> : null}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {next ? (
+              <div style={{ display: 'flex', justifyContent: 'center', marginTop: 32 }}>
+                <button className="btn btn-quiet" onClick={() => load(source, query, next)}>
+                  Show more
+                </button>
               </div>
-              <div className="toolbar" style={{ marginBottom: 24 }}>
-                <label className="sr-only" htmlFor="lib-search">
-                  Search your library
-                </label>
-                <input
-                  id="lib-search"
-                  className="field"
-                  type="search"
-                  placeholder="Search title or author"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  autoComplete="off"
-                />
-                <label className="sr-only" htmlFor="lib-sort">
-                  Sort books
-                </label>
-                <select id="lib-sort" className="field" value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
-                  <option value="recent">Recent</option>
-                  <option value="title">Title</option>
-                  <option value="author">Author</option>
-                  <option value="added">Date added</option>
-                </select>
-              </div>
-              {shelf.length ? (
-                <ul className="shelf">
-                  {shelf.map((b) => (
-                    <li key={b.id} className="book-card">
-                      <button className="book-open" onClick={(e) => open(b, e.currentTarget)} aria-label={`Open ${b.title} by ${b.author}`}>
-                        <BookCover cover={b.cover} title={b.title} author={b.author} />
-                      </button>
-                      {(b.progress ?? 0) > 0 ? (
-                        <div className="progress" aria-hidden="true">
-                          <span style={{ width: `${pct(b.progress)}%` }} />
-                        </div>
-                      ) : null}
-                      <div className="book-meta">
-                        <div style={{ minWidth: 0 }}>
-                          <h3 className="book-title clamp-2">{b.title}</h3>
-                          <p className="book-author clamp-2">
-                            {b.author}
-                            {(b.progress ?? 0) > 0 ? <span className="sr-only">, {pct(b.progress)}% read</span> : null}
-                          </p>
-                        </div>
-                        <button className="icon-btn book-more" onClick={() => setDetails(b)} aria-label={`More about ${b.title}`} aria-haspopup="dialog">
-                          <IconMore />
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="muted" role="status">
-                  No books match “{query}”.
-                </p>
-              )}
-            </section>
+            ) : null}
           </>
         )}
 
         <footer className="site-foot">
-          <span>Your books stay on this device. Clearing this site&apos;s browser data removes them — keep a backup in settings.</span>
+          <span>
+            Catalog data and books courtesy of{' '}
+            <a href={SOURCES['standard-ebooks'].site} target="_blank" rel="noopener" style={{ color: 'inherit' }}>
+              Standard Ebooks
+            </a>{' '}
+            and{' '}
+            <a href={SOURCES.gutenberg.site} target="_blank" rel="noopener" style={{ color: 'inherit' }}>
+              Project Gutenberg
+            </a>
+            . These works are in the public domain in the United States; check the copyright laws of your country before downloading.
+          </span>
           <Byline />
         </footer>
       </main>
 
-      {addOpen ? (
-        <Sheet title="Add a book" onClose={() => setAddOpen(false)}>
-          <ul className="menu">
-            <li>
-              <button className="menu-item" onClick={pick} disabled={busy} data-autofocus>
-                <span className="mi-icon">
-                  <IconUpload width={20} height={20} />
-                </span>
-                <span>
-                  {busy ? 'Adding…' : 'Import EPUB'}
-                  <small>Choose DRM-free .epub files from this device</small>
-                </span>
+      {selected ? (
+        <Sheet title={selected.title} onClose={() => setSelected(null)}>
+          <div style={{ display: 'grid', gridTemplateColumns: '104px 1fr', gap: 20, alignItems: 'start' }}>
+            <BookCover src={selected.cover} title={selected.title} author={selected.authors[0]} />
+            <div style={{ minWidth: 0 }}>
+              <p style={{ margin: 0 }}>{selected.authors.join(', ') || 'Unknown author'}</p>
+              <p className="muted" style={{ fontSize: 13, margin: '8px 0 0' }}>
+                {SOURCES[selected.source].label}
+                {selected.downloads ? ` · ${selected.downloads.toLocaleString()} downloads last month` : ''}
+              </p>
+              {selected.subjects.length ? (
+                <p className="muted" style={{ fontSize: 13, margin: '8px 0 0' }}>
+                  {selected.subjects.join(' · ')}
+                </p>
+              ) : null}
+            </div>
+          </div>
+          {selected.summary ? (
+            <p className="serif" style={{ fontSize: 15, lineHeight: 1.7, marginTop: 20 }}>
+              {selected.summary}
+            </p>
+          ) : null}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 24, alignItems: 'center' }}>
+            {owned?.has(selected.key) ? (
+              <button className="btn btn-primary" onClick={(e) => openBook(owned.get(selected.key)!, e.currentTarget)} data-autofocus>
+                Read now
               </button>
-            </li>
-            <li>
-              <Link className="menu-item" href="/discover/">
-                <span className="mi-icon">
-                  <IconCompass width={20} height={20} />
-                </span>
-                <span>
-                  Discover free books
-                  <small>Public-domain classics from Standard Ebooks and Project Gutenberg</small>
-                </span>
-              </Link>
-            </li>
-          </ul>
+            ) : (
+              <button className="btn btn-primary" onClick={() => add(selected)} disabled={adding !== null} data-autofocus>
+                {adding === selected.key ? 'Downloading…' : 'Add to library'}
+              </button>
+            )}
+            <a className="btn btn-text" href={selected.pageUrl} target="_blank" rel="noopener">
+              View on {SOURCES[selected.source].label}
+            </a>
+          </div>
+          <p className="muted" style={{ fontSize: 12.5, marginTop: 20 }}>
+            {selected.source === 'standard-ebooks'
+              ? 'Standard Ebooks editions are released into the public domain (CC0) and are free to read and share.'
+              : 'From Project Gutenberg, which makes this public-domain work freely available. The ebook includes the Project Gutenberg License.'}{' '}
+            Public domain in the USA; copyright may differ in your country.
+          </p>
         </Sheet>
       ) : null}
-      {settingsOpen ? <LibrarySettings onClose={() => setSettingsOpen(false)} /> : null}
-      {details ? <BookDetails book={details} onClose={() => setDetails(null)} onOpen={() => open(details, null)} /> : null}
     </div>
   );
 }

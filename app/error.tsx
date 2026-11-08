@@ -15,7 +15,7 @@ export default function ErrorScreen({ error, reset }: { error: Error & { digest?
         <button className="btn btn-primary" onClick={reset}>
           Try again
         </button>
-        <Link className="btn btn-quiet" href="/">
+        <Link className="btn btn-quiet" href="/library/">
           Library
         </Link>
       </div>
