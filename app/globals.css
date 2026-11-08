@@ -915,10 +915,6 @@ input[type='range'] {
   width: min(100% - 2 * var(--r-inset) - env(safe-area-inset-left) - env(safe-area-inset-right), 700px);
 }
 @media (min-width: 900px) {
-  .reader-running,
-  .reader-foot {
-    width: min(100% - 2 * var(--r-margin), 1124px);
-  }
   /* two pages side by side, each kept to a comfortable ~65–75 character measure */
   .reader-viewer {
     width: min(100% - 2 * var(--r-inset), 1180px);
@@ -942,6 +938,12 @@ input[type='range'] {
   color: var(--r-muted);
   pointer-events: none;
   transition: opacity 0.25s var(--ease);
+}
+@media (min-width: 900px) {
+  .reader-running,
+  .reader-foot {
+    width: min(100% - 2 * var(--r-margin), 1124px);
+  }
 }
 .reader-running {
   top: calc(env(safe-area-inset-top) + 16px);
