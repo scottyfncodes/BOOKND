@@ -1,8 +1,8 @@
 /* BookNd service worker: caches the app shell so the library and reader open offline.
  * Books themselves live in IndexedDB on the device; they are never put in this cache,
  * and nothing from /api/ (catalog, downloads) is cached here. */
-const VERSION = 'booknd-v4';
-const SHELL = ['/', '/read/', '/discover/', '/manifest.webmanifest', '/assets/brand/logo.svg', '/assets/icons/icon.svg', '/assets/icons/icon-192.png', '/fonts/libre-baskerville-400.woff2', '/fonts/libre-baskerville-400-italic.woff2', '/fonts/libre-baskerville-700.woff2', '/fonts/inter-var.woff2'];
+const VERSION = 'booknd-v5';
+const SHELL = ['/', '/library/', '/read/', '/discover/', '/manifest.webmanifest', '/assets/brand/logo.svg', '/assets/icons/icon.svg', '/assets/icons/icon-192.png', '/fonts/libre-baskerville-400.woff2', '/fonts/libre-baskerville-400-italic.woff2', '/fonts/libre-baskerville-700.woff2', '/fonts/inter-var.woff2'];
 
 async function precache() {
   const cache = await caches.open(VERSION);
@@ -71,7 +71,7 @@ self.addEventListener('fetch', (event) => {
           if (res.ok) cache.put(url.pathname, res.clone());
           return res;
         } catch {
-          return (await cache.match(url.pathname)) || (await cache.match('/')) || Response.error();
+          return (await cache.match(url.pathname)) || (await cache.match('/library/')) || Response.error();
         }
       })(),
     );

@@ -10,7 +10,7 @@ function ReadInner() {
     return (
       <main className="page empty" id="main">
         <h1 className="serif">No book selected</h1>
-        <Link className="btn btn-primary" href="/">
+        <Link className="btn btn-primary" href="/library/">
           Go to your library
         </Link>
       </main>
