@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { mapGutendex, parseGutenbergOpds, parseStandardEbooksFeed, type CatalogPage } from '@/lib/catalog';
+import { isReadableGutenbergBook, mapGutendex, parseGutenbergBook, parseGutenbergOpds, parseStandardEbooksFeed, type CatalogBook, type CatalogPage } from '@/lib/catalog';
 import { fetchUpstream } from '@/lib/fetch-upstream';
 
 export const runtime = 'nodejs';
@@ -23,7 +23,41 @@ async function gutenbergOpds(q: string, page: number): Promise<CatalogPage> {
     headers: { Accept: 'application/atom+xml' },
   });
   if (!res.ok) throw new Error(`Project Gutenberg catalog returned ${res.status}`);
-  return parseGutenbergOpds(await res.text(), page);
+  const result = parseGutenbergOpds(await res.text(), page);
+  return { ...result, books: await onlyReadable(result.books) };
+}
+
+/**
+ * Search results don't say what each title is, so each one's own feed is checked: audiobooks and
+ * titles without an EPUB are left out. A book's type never changes, so the lookups are cached for 30 days.
+ * If a lookup fails the title is kept (the download explains it if there is no EPUB).
+ */
+async function onlyReadable(books: CatalogBook[]): Promise<CatalogBook[]> {
+  const out: (CatalogBook | null)[] = new Array(books.length).fill(null);
+  let next = 0;
+  const worker = async () => {
+    while (next < books.length) {
+      const i = next++;
+      const book = books[i];
+      const id = book.key.replace('gutenberg:', '');
+      try {
+        const res = await fetchUpstream(`https://www.gutenberg.org/ebooks/${id}.opds`, {
+          revalidate: 2592000,
+          timeoutMs: 8000,
+          headers: { Accept: 'application/atom+xml' },
+        });
+        if (!res.ok) throw new Error(String(res.status));
+        const info = parseGutenbergBook(await res.text());
+        if (!isReadableGutenbergBook(info)) continue;
+        out[i] = { ...book, subjects: info.subjects.length ? info.subjects : book.subjects, language: info.language ?? book.language };
+      } catch {
+        out[i] = book;
+      }
+    }
+  };
+  // a few at a time, to be gentle with Project Gutenberg
+  await Promise.all(Array.from({ length: Math.min(6, books.length) }, worker));
+  return out.filter((b): b is CatalogBook => b !== null);
 }
 
 async function gutenberg(q: string, page: number): Promise<CatalogPage> {
