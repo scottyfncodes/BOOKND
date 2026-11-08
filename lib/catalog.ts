@@ -58,7 +58,7 @@ export function isAllowedCoverUrl(raw: string): boolean {
   }
   if (u.protocol !== 'https:' || u.username || u.password || u.port) return false;
   if (u.hostname === GUTENBERG_HOST) return /^\/cache\/epub\/\d{1,6}\/pg\d{1,6}\.cover\.(medium|small)\.jpg$/.test(u.pathname);
-  if (u.hostname === SE_HOST) return /^\/(images\/covers|ebooks)\/[a-z0-9/_.-]+\.(jpg|jpeg|png|avif|webp)$/.test(u.pathname);
+  if (u.hostname === SE_HOST) return /^\/(images\/covers|ebooks)\/[a-z0-9/_.@-]+\.(jpg|jpeg|png|avif|webp)$/.test(u.pathname) && !u.pathname.includes('..');
   return false;
 }
 
@@ -143,6 +143,11 @@ export function parseStandardEbooksFeed(xml: string): CatalogPage {
       links.find((l) => l.type.startsWith('image/'));
     const page = links.find((l) => l.rel === 'alternate' && l.type.includes('html'))?.href ?? (id.startsWith('http') ? id : undefined);
     const slug = new URL(epub.href).pathname.replace(/^\/ebooks\//, '').replace(/\/downloads\/.*$/, '');
+    const thumb = el(entry, 'media:thumbnail')[0]?.getAttribute('url') ?? undefined;
+    // Every Standard Ebooks release publishes its cover next to its downloads.
+    const coverUrl =
+      [image?.href, thumb && new URL(thumb, `https://${SE_HOST}/`).toString()].map((u) => u?.split('?')[0]).find((u) => u && isAllowedCoverUrl(u)) ??
+      `https://${SE_HOST}/ebooks/${slug}/downloads/cover-thumbnail.jpg`;
     books.push({
       key: `se:${slug}`,
       source: 'standard-ebooks',
@@ -157,10 +162,45 @@ export function parseStandardEbooksFeed(xml: string): CatalogPage {
         return [...new Set(list.filter((s) => s && !/^https?:/.test(s)))].slice(0, 4);
       })(),
       language: txt(el(entry, 'dc:language')[0]) || undefined,
-      cover: coverProxy(image?.href.split('?')[0]),
+      cover: coverProxy(coverUrl),
       pageUrl: page ?? `https://${SE_HOST}/ebooks/${slug}`,
       epubUrl: epub.href.split('?')[0],
     });
   }
   return { books, next: null, source: 'standard-ebooks' };
+}
+
+/**
+ * Parses Project Gutenberg's official OPDS search feed (used when Gutendex is unavailable).
+ * Entries link to /ebooks/<id>.opds; covers and EPUBs follow Gutenberg's stable URL scheme.
+ */
+export function parseGutenbergOpds(xml: string, page: number): CatalogPage {
+  const doc = new DOMParser({ errorHandler: { warning: () => {}, error: () => {}, fatalError: () => {} } }).parseFromString(
+    xml,
+    'application/xml',
+  );
+  const books: CatalogBook[] = [];
+  const seen = new Set<string>();
+  for (const entry of el(doc, 'entry')) {
+    const hrefs = [txt(el(entry, 'id')[0]), ...el(entry, 'link').map((l) => l.getAttribute('href') ?? '')];
+    const idMatch = hrefs.map((h) => h.match(/\/ebooks\/(\d{1,6})(?:\.opds)?$/)).find(Boolean);
+    if (!idMatch) continue;
+    const id = idMatch[1];
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const content = txt(el(entry, 'content')[0]);
+    const author = el(entry, 'author').map((a) => txt(el(a, 'name')[0])).find(Boolean) || (content && !/downloads?$/i.test(content) ? content : '');
+    books.push({
+      key: `gutenberg:${id}`,
+      source: 'gutenberg',
+      title: txt(el(entry, 'title')[0]),
+      authors: author ? [displayName(author)] : [],
+      subjects: [],
+      cover: coverProxy(`https://${GUTENBERG_HOST}/cache/epub/${id}/pg${id}.cover.medium.jpg`),
+      pageUrl: `https://${GUTENBERG_HOST}/ebooks/${id}`,
+      epubUrl: `https://${GUTENBERG_HOST}/ebooks/${id}.epub3.images`,
+    });
+  }
+  const hasNext = el(doc, 'link').some((l) => l.getAttribute('rel') === 'next');
+  return { books, next: hasNext ? page + 1 : null, source: 'gutenberg' };
 }

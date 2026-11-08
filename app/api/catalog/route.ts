@@ -1,17 +1,37 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { mapGutendex, parseStandardEbooksFeed, type CatalogPage } from '@/lib/catalog';
+import { mapGutendex, parseGutenbergOpds, parseStandardEbooksFeed, type CatalogPage } from '@/lib/catalog';
 import { fetchUpstream } from '@/lib/fetch-upstream';
 
 export const runtime = 'nodejs';
 
 const SE_FEED = 'https://standardebooks.org/feeds/atom/new-releases';
 
-async function gutenberg(q: string, page: number): Promise<CatalogPage> {
+async function gutendex(q: string, page: number): Promise<CatalogPage> {
   const params = new URLSearchParams({ languages: 'en', mime_type: 'application/epub', copyright: 'false', page: String(page) });
   if (q) params.set('search', q);
-  const res = await fetchUpstream(`https://gutendex.com/books/?${params}`, { revalidate: q ? 3600 : 86400 });
+  const res = await fetchUpstream(`https://gutendex.com/books/?${params}`, { revalidate: q ? 3600 : 86400, timeoutMs: 9000 });
   if (!res.ok) throw new Error(`Project Gutenberg catalog returned ${res.status}`);
   return mapGutendex(await res.json(), page);
+}
+
+/** Project Gutenberg's own OPDS feed: 25 results a page, sorted by popularity. */
+async function gutenbergOpds(q: string, page: number): Promise<CatalogPage> {
+  const params = new URLSearchParams({ sort_order: 'downloads', start_index: String((page - 1) * 25 + 1) });
+  if (q) params.set('query', q);
+  const res = await fetchUpstream(`https://www.gutenberg.org/ebooks/search.opds/?${params}`, {
+    revalidate: q ? 3600 : 86400,
+    headers: { Accept: 'application/atom+xml' },
+  });
+  if (!res.ok) throw new Error(`Project Gutenberg catalog returned ${res.status}`);
+  return parseGutenbergOpds(await res.text(), page);
+}
+
+async function gutenberg(q: string, page: number): Promise<CatalogPage> {
+  try {
+    return await gutendex(q, page);
+  } catch {
+    return gutenbergOpds(q, page);
+  }
 }
 
 async function standardEbooks(q: string): Promise<CatalogPage> {

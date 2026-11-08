@@ -94,3 +94,25 @@ describe('Standard Ebooks feed', () => {
     expect(b.pageUrl).toBe('https://standardebooks.org/ebooks/jane-austen/pride-and-prejudice');
   });
 });
+
+describe('Gutenberg OPDS fallback', () => {
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/">
+  <link rel="next" href="/ebooks/search.opds/?query=austen&amp;start_index=26" type="application/atom+xml;profile=opds-catalog"/>
+  <entry><title>Sort Alphabetically by Title</title><id>https://www.gutenberg.org/ebooks/search.opds/?sort_order=title</id></entry>
+  <entry>
+    <title>Pride and Prejudice</title>
+    <content type="text">Jane Austen</content>
+    <id>https://www.gutenberg.org/ebooks/1342.opds</id>
+    <link type="application/atom+xml;profile=opds-catalog" rel="subsection" href="/ebooks/1342.opds"/>
+  </entry>
+</feed>`;
+  it('maps entries to downloadable books and skips navigation', async () => {
+    const { parseGutenbergOpds } = await import('@/lib/catalog');
+    const page = parseGutenbergOpds(xml, 1);
+    expect(page.books).toHaveLength(1);
+    expect(page.books[0]).toMatchObject({ key: 'gutenberg:1342', title: 'Pride and Prejudice', authors: ['Jane Austen'] });
+    expect(isAllowedEpubUrl(page.books[0].epubUrl)).toBe(true);
+    expect(page.next).toBe(2);
+  });
+});

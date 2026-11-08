@@ -14,8 +14,12 @@ const MAX_BYTES = 100 * 1024 * 1024;
 export async function GET(req: NextRequest) {
   const url = req.nextUrl.searchParams.get('url') ?? '';
   if (!isAllowedEpubUrl(url)) return Response.json({ error: 'This download is not from a supported catalog.' }, { status: 400 });
+  // Standard Ebooks serves a "download started" page unless the request says it is the download itself
+  // (their own page refreshes to this same URL with ?source=download).
+  const target = new URL(url);
+  if (target.hostname === 'standardebooks.org') target.searchParams.set('source', 'download');
   try {
-    let res = await fetchUpstream(url, { timeoutMs: 45000, redirect: 'manual' });
+    let res = await fetchUpstream(target.toString(), { timeoutMs: 45000, redirect: 'manual' });
     // Follow redirects only while they stay on allow-listed files.
     for (let hops = 0; res.status >= 300 && res.status < 400 && hops < 4; hops++) {
       const loc = res.headers.get('location');
@@ -26,9 +30,28 @@ export async function GET(req: NextRequest) {
     if (!res.ok || !res.body) return Response.json({ error: `The catalog returned ${res.status}.` }, { status: 502 });
     const len = Number(res.headers.get('content-length') ?? 0);
     if (len > MAX_BYTES) return Response.json({ error: 'This book is too large to download.' }, { status: 413 });
-    const type = res.headers.get('content-type') ?? '';
-    if (/text\/html/i.test(type)) return Response.json({ error: 'The catalog did not return an EPUB file.' }, { status: 502 });
-    return new Response(res.body, {
+    // An EPUB is a ZIP: check the signature before streaming, so a web page is never saved as a book.
+    const reader = res.body.getReader();
+    const first = await reader.read();
+    const head = first.value ?? new Uint8Array();
+    if (head.length < 2 || head[0] !== 0x50 || head[1] !== 0x4b) {
+      await reader.cancel();
+      return Response.json({ error: 'The catalog did not return an EPUB file.' }, { status: 502 });
+    }
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(head);
+      },
+      async pull(controller) {
+        const { done, value } = await reader.read();
+        if (done) controller.close();
+        else controller.enqueue(value);
+      },
+      cancel() {
+        void reader.cancel();
+      },
+    });
+    return new Response(body, {
       headers: {
         'Content-Type': 'application/epub+zip',
         ...(len ? { 'Content-Length': String(len) } : {}),
