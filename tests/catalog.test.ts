@@ -116,3 +116,32 @@ describe('Gutenberg OPDS fallback', () => {
     expect(page.next).toBe(2);
   });
 });
+
+describe('Gutenberg book type check (audiobooks are filtered out)', () => {
+  const feed = (type: string, epub: boolean) => `<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:dcterms="http://purl.org/dc/terms/">
+  <entry>
+    <category scheme="http://purl.org/dc/terms/LCSH" term="Courtship -- Fiction"/>
+    <category scheme="http://purl.org/dc/terms/LCSH" term="England -- Fiction"/>
+    <category scheme="http://purl.org/dc/terms/DCMIType" term="${type}"/>
+    <dcterms:language>en</dcterms:language>
+    ${epub ? '<link type="application/epub+zip" rel="http://opds-spec.org/acquisition" href="https://www.gutenberg.org/ebooks/1342.epub3.images"/>' : '<link type="audio/mpeg" rel="http://opds-spec.org/acquisition" href="https://www.gutenberg.org/files/26301/26301-mp3.zip"/>'}
+  </entry>
+</feed>`;
+  it('keeps text editions with an EPUB and reads their subjects', async () => {
+    const { parseGutenbergBook, isReadableGutenbergBook } = await import('@/lib/catalog');
+    const info = parseGutenbergBook(feed('Text', true));
+    expect(info).toMatchObject({ types: ['Text'], hasEpub: true, subjects: ['Courtship', 'England'], language: 'en' });
+    expect(isReadableGutenbergBook(info)).toBe(true);
+  });
+  it('drops audiobooks (DCMI type Sound, no EPUB)', async () => {
+    const { parseGutenbergBook, isReadableGutenbergBook } = await import('@/lib/catalog');
+    const info = parseGutenbergBook(feed('Sound', false));
+    expect(info.types).toEqual(['Sound']);
+    expect(isReadableGutenbergBook(info)).toBe(false);
+  });
+  it('drops a Sound edition even if it lists an EPUB', async () => {
+    const { parseGutenbergBook, isReadableGutenbergBook } = await import('@/lib/catalog');
+    expect(isReadableGutenbergBook(parseGutenbergBook(feed('Sound', true)))).toBe(false);
+  });
+});

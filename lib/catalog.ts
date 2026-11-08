@@ -204,3 +204,40 @@ export function parseGutenbergOpds(xml: string, page: number): CatalogPage {
   const hasNext = el(doc, 'link').some((l) => l.getAttribute('rel') === 'next');
   return { books, next: hasNext ? page + 1 : null, source: 'gutenberg' };
 }
+
+/** What a single Project Gutenberg book feed (/ebooks/<id>.opds) says about the book. */
+export interface GutenbergBookInfo {
+  /** DCMI type: "Text" for books; "Sound" for audiobooks, plus "Image", "MovingImage", etc. */
+  types: string[];
+  /** Whether Gutenberg offers an EPUB edition. */
+  hasEpub: boolean;
+  subjects: string[];
+  language?: string;
+}
+
+export function parseGutenbergBook(xml: string): GutenbergBookInfo {
+  const doc = new DOMParser({ errorHandler: { warning: () => {}, error: () => {}, fatalError: () => {} } }).parseFromString(
+    xml,
+    'application/xml',
+  );
+  const cats = el(doc, 'category');
+  const types = cats.filter((c) => (c.getAttribute('scheme') ?? '').endsWith('/DCMIType')).map((c) => c.getAttribute('term') ?? '');
+  const hasEpub = el(doc, 'link').some(
+    (l) => (l.getAttribute('rel') ?? '').startsWith('http://opds-spec.org/acquisition') && (l.getAttribute('type') ?? '').startsWith('application/epub+zip'),
+  );
+  const subjects = [
+    ...new Set(
+      cats
+        .filter((c) => (c.getAttribute('scheme') ?? '').endsWith('/LCSH'))
+        .map((c) => (c.getAttribute('term') ?? '').split(' -- ')[0].trim())
+        .filter(Boolean),
+    ),
+  ].slice(0, 4);
+  const language = txt(el(doc, 'dcterms:language')[0]) || undefined;
+  return { types: [...new Set(types)], hasEpub, subjects, language };
+}
+
+/** Only readable books: a Text edition with an EPUB. Audiobooks (Sound) and other media are left out. */
+export function isReadableGutenbergBook(info: GutenbergBookInfo) {
+  return info.hasEpub && (info.types.length === 0 || info.types.includes('Text'));
+}
