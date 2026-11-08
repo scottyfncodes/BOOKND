@@ -20,7 +20,9 @@ async function gutendex(q: string, page: number, f: Filters): Promise<CatalogPag
   if (f.collection === 'classics') params.set('author_year_end', String(CLASSICS_AUTHOR_YEAR_END));
   const res = await fetchUpstream(`https://gutendex.com/books/?${params}`, { revalidate: q ? 3600 : 86400, timeoutMs: 9000 });
   if (!res.ok) throw new Error(`Project Gutenberg catalog returned ${res.status}`);
-  return mapGutendex(await res.json(), page);
+  const result = mapGutendex(await res.json(), page);
+  // Topic searches can still return translations; keep Discover in English.
+  return { ...result, books: result.books.filter((b) => !b.language || b.language === 'en') };
 }
 
 /** Project Gutenberg's own OPDS feed: 25 results a page, sorted by popularity. */
@@ -85,22 +87,10 @@ async function seFeed(url: string) {
   return parseStandardEbooksFeed(await res.text());
 }
 
+/** Standard Ebooks' public feed is its newest releases; a genre narrows those by subject. */
 async function standardEbooks(q: string, f: Filters): Promise<CatalogPage> {
-  let page: CatalogPage;
-  const slug = f.genre ? GENRES[f.genre].se : null;
-  if (f.genre && !slug) return { books: [], next: null, source: 'standard-ebooks' };
-  if (f.genre && slug) {
-    try {
-      // The whole subject, when Standard Ebooks serves its subject feed…
-      page = await seFeed(`https://standardebooks.org/feeds/atom/subjects/${slug}`);
-    } catch {
-      // …otherwise the newest releases in that subject.
-      const latest = await seFeed(SE_FEED);
-      page = { ...latest, books: latest.books.filter((b) => matchesSeGenre(b.subjects, f.genre!)) };
-    }
-  } else {
-    page = await seFeed(SE_FEED);
-  }
+  let page = await seFeed(SE_FEED);
+  if (f.genre) page = { ...page, books: page.books.filter((b) => matchesSeGenre(b.subjects, f.genre!)) };
   if (!q) return page;
   const needle = q.toLowerCase();
   return { ...page, books: page.books.filter((b) => `${b.title} ${b.authors.join(' ')}`.toLowerCase().includes(needle)) };

@@ -6,7 +6,7 @@
 /** Project Gutenberg collections. Standard Ebooks only publishes its newest releases, so it has none. */
 export const COLLECTIONS = {
   favorites: { label: 'Fan favorites', blurb: 'The most-downloaded books on Project Gutenberg right now.' },
-  classics: { label: 'Classics', blurb: 'Timeless works by authors from before 1900, most-read first.' },
+  classics: { label: 'Classics', blurb: 'Timeless works by authors born before 1900, most-read first.' },
 } as const;
 export type Collection = keyof typeof COLLECTIONS;
 
@@ -48,10 +48,10 @@ export function genresFor(source: 'gutenberg' | 'standard-ebooks'): GenreId[] {
   return (Object.keys(GENRES) as GenreId[]).filter((g) => source === 'gutenberg' || GENRES[g].se !== null);
 }
 
-/** Classics: works by authors who lived before 1900 (Gutendex `author_year_end`). */
+/** Classics: works by authors alive before 1900 (Gutendex `author_year_end`: born on or before this year). */
 export const CLASSICS_AUTHOR_YEAR_END = 1899;
 
-/** Whether a Standard Ebooks book's subjects match a genre (used when the subject feed is unavailable). */
+/** Whether a Standard Ebooks book's subjects match a genre. */
 export function matchesSeGenre(subjects: string[], genre: GenreId) {
   const slug = GENRES[genre].se;
   if (!slug) return false;

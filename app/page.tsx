@@ -190,6 +190,13 @@ export default function DiscoverPage() {
             <p className="muted filters-note" aria-live="polite">
               {COLLECTIONS[collection].blurb}
             </p>
+          ) : genre ? (
+            <p className="muted filters-note" aria-live="polite">
+              Standard Ebooks’ newest {GENRES[genre].label.toLowerCase()} releases.{' '}
+              <button type="button" className="link-btn" onClick={() => pickSource('gutenberg')}>
+                See more {GENRES[genre].label.toLowerCase()} on Project Gutenberg
+              </button>
+            </p>
           ) : null}
         </div>
 
@@ -228,7 +235,9 @@ export default function DiscoverPage() {
               {query
                 ? `Nothing matches “${query}”${genre ? ` in ${GENRES[genre].label}` : ''} on ${info.label}.`
                 : genre
-                  ? `${info.label} has no ${GENRES[genre].label.toLowerCase()} books here right now.`
+                  ? source === 'standard-ebooks'
+                    ? `None of Standard Ebooks’ newest releases are ${GENRES[genre].label.toLowerCase()}.`
+                    : `${info.label} has no ${GENRES[genre].label.toLowerCase()} books here right now.`
                   : 'This catalog returned no books.'}
             </p>
             <div className="actions">

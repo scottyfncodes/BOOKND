@@ -1461,3 +1461,14 @@ input[type='range'] {
     padding: 0;
   }
 }
+.link-btn {
+  display: inline;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  color: var(--accent-text);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
