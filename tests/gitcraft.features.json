@@ -1,0 +1,12 @@
+{
+ "_how": "One entry per feature: steps a person would take, ending in what they should see. Run by GITCRAFT qa.features in Chromium on a phone. EPUB import, reading, resume, highlights, search and offline reading are covered in depth by tests/e2e.mjs.",
+ "features": [
+  {"name": "the library opens with a helpful empty state", "requirement": "Library: thoughtful empty states", "steps": [{"expect": "#empty-title", "text": "Your shelf is waiting"}]},
+  {"name": "Add book offers Import EPUB and Discover", "requirement": "Library: Add Book action", "steps": [{"click": ".topbar .btn-primary"}, {"wait": 300}, {"expect": ".sheet", "text": "Import EPUB"}, {"expect": ".sheet", "text": "Discover free books"}]},
+  {"name": "settings explain local storage and offer a backup", "requirement": "Backup/export and the browser-data warning", "steps": [{"click": "[aria-label='Library settings and backup']"}, {"wait": 300}, {"expect": ".sheet", "text": "Export backup"}, {"expect": ".sheet", "text": "deletes them"}]},
+  {"name": "decorative ink effects can be turned off", "requirement": "Option to disable decorative effects", "steps": [{"click": "[aria-label='Library settings and backup']"}, {"wait": 300}, {"expect": ".sheet", "text": "Liquid-ink effects"}, {"assert": "!!document.querySelector('.sheet input[role=switch]')"}]},
+  {"name": "Discover shows both public-domain sources", "requirement": "Free book discovery with attribution", "steps": [{"click": "a[href='/discover']"}, {"wait": 800}, {"expect": "[role=tablist]", "text": "Standard Ebooks"}, {"expect": "[role=tablist]", "text": "Project Gutenberg"}, {"expect": ".site-foot", "text": "public domain in the United States"}]},
+  {"name": "the reader explains a missing book instead of failing", "requirement": "Reader error states", "steps": [{"assert": "location.assign('/read?book=missing') || true"}, {"wait": 1500}, {"expect": ".reader-status", "text": "isn’t in your library"}]},
+  {"name": "the maker's credit is present", "requirement": "HaveAnApp byline", "steps": [{"expect": "[data-haveanapp]", "text": "by HaveAnApp"}]}
+ ]
+}
