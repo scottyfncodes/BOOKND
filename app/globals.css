@@ -915,6 +915,10 @@ input[type='range'] {
   width: min(100% - 2 * var(--r-inset) - env(safe-area-inset-left) - env(safe-area-inset-right), 700px);
 }
 @media (min-width: 900px) {
+  .reader-running,
+  .reader-foot {
+    width: min(100% - 2 * var(--r-margin), 1124px);
+  }
   /* two pages side by side, each kept to a comfortable ~65–75 character measure */
   .reader-viewer {
     width: min(100% - 2 * var(--r-inset), 1180px);
@@ -926,8 +930,10 @@ input[type='range'] {
 .reader-running,
 .reader-foot {
   position: absolute;
-  left: max(var(--r-margin), env(safe-area-inset-left));
-  right: max(var(--r-margin), env(safe-area-inset-right));
+  /* aligned to the text block: the viewer width minus the page gap */
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(100% - 2 * var(--r-margin) - env(safe-area-inset-left) - env(safe-area-inset-right), 644px);
   display: flex;
   justify-content: space-between;
   gap: var(--s4);
