@@ -1397,3 +1397,67 @@ input[type='range'] {
   color: var(--muted);
   max-width: 44ch;
 }
+
+/* Discover filters: collection and genre chips */
+.filters {
+  display: grid;
+  gap: var(--s3);
+  margin-bottom: 32px;
+  min-width: 0;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.chips-scroll {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: 0 calc(-1 * var(--gutter-r)) 0 calc(-1 * var(--gutter));
+  padding: 2px var(--gutter-r) 2px var(--gutter);
+  scroll-padding: 0 var(--gutter);
+  -webkit-overflow-scrolling: touch;
+}
+.chips-scroll::-webkit-scrollbar {
+  display: none;
+}
+.chip {
+  flex: none;
+  min-height: var(--tap);
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: inherit;
+  font: 500 14px/1 var(--sans);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.2s var(--ease), border-color 0.2s var(--ease), color 0.2s var(--ease);
+}
+.chip[aria-pressed='true'] {
+  border-color: var(--btn-bg);
+  background: var(--btn-bg);
+  color: var(--btn-text);
+}
+.chip-strong {
+  padding: 0 20px;
+  font-size: 15px;
+}
+.filters-note {
+  margin: 0;
+  font-size: 13px;
+}
+@media (hover: hover) {
+  .chip:not([aria-pressed='true']):hover {
+    background: color-mix(in srgb, currentColor 8%, transparent);
+  }
+}
+@media (min-width: 900px) {
+  .chips-scroll {
+    flex-wrap: wrap;
+    overflow: visible;
+    margin: 0;
+    padding: 0;
+  }
+}

@@ -7,6 +7,7 @@ import { Byline } from '@/components/Byline';
 import { IconLibrary, IconSearch, Mark } from '@/components/Icons';
 import { Sheet } from '@/components/Sheet';
 import { useToast } from '@/components/Toasts';
+import { COLLECTIONS, GENRES, genresFor, type Collection, type GenreId } from '@/lib/browse';
 import type { CatalogBook, CatalogPage } from '@/lib/catalog';
 import { db } from '@/lib/db';
 import { useLive } from '@/lib/hooks';
@@ -23,7 +24,7 @@ const SOURCES: Record<Source, { label: string; blurb: string; site: string }> = 
   },
   gutenberg: {
     label: 'Project Gutenberg',
-    blurb: 'Over 70,000 free ebooks. Showing the most-downloaded titles; search by title or author.',
+    blurb: 'Over 70,000 free ebooks. Search by title or author, or browse by collection and genre.',
     site: 'https://www.gutenberg.org',
   },
 };
@@ -34,6 +35,8 @@ export default function DiscoverPage() {
   const [source, setSource] = useState<Source>('standard-ebooks');
   const [input, setInput] = useState('');
   const [query, setQuery] = useState('');
+  const [collection, setCollection] = useState<Collection>('favorites');
+  const [genre, setGenre] = useState<GenreId | null>(null);
   const [books, setBooks] = useState<CatalogBook[]>([]);
   const [next, setNext] = useState<number | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error' | 'offline'>('loading');
@@ -43,7 +46,7 @@ export default function DiscoverPage() {
   const req = useRef(0);
   const owned = useLive(async () => new Map((await db().books.toArray()).filter((b) => b.sourceKey).map((b) => [b.sourceKey!, b.id])), [], new Map());
 
-  const load = useCallback(async (src: Source, q: string, page = 1) => {
+  const load = useCallback(async (src: Source, q: string, list: Collection, g: GenreId | null, page = 1) => {
     const id = ++req.current;
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       setState('offline');
@@ -54,7 +57,10 @@ export default function DiscoverPage() {
       setBooks([]);
     }
     try {
-      const res = await fetch(`/api/catalog/?source=${src}&q=${encodeURIComponent(q)}&page=${page}`);
+      const params = new URLSearchParams({ source: src, q, page: String(page) });
+      if (src === 'gutenberg') params.set('list', list);
+      if (g) params.set('genre', g);
+      const res = await fetch(`/api/catalog/?${params}`);
       const data = (await res.json()) as CatalogPage & { error?: string };
       if (id !== req.current) return;
       if (!res.ok) throw new Error(data.error || 'The catalog is unavailable right now.');
@@ -71,14 +77,20 @@ export default function DiscoverPage() {
   useEffect(() => {
     // fetching the catalog is the effect's job; load() updates state as results arrive
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void load(source, query);
-  }, [source, query, load]);
+    void load(source, query, collection, genre);
+  }, [source, query, collection, genre, load]);
 
   useEffect(() => {
-    const on = () => void load(source, query);
+    const on = () => void load(source, query, collection, genre);
     window.addEventListener('online', on);
     return () => window.removeEventListener('online', on);
-  }, [source, query, load]);
+  }, [source, query, collection, genre, load]);
+
+  function pickSource(s: Source) {
+    setSource(s);
+    // Standard Ebooks doesn't have every genre; drop one it can't filter by.
+    if (genre && !genresFor(s).includes(genre)) setGenre(null);
+  }
 
   async function add(book: CatalogBook) {
     setAdding(book.key);
@@ -127,7 +139,7 @@ export default function DiscoverPage() {
 
         <div className="seg" role="tablist" aria-label="Catalog" style={{ marginTop: 24, maxWidth: 440 }}>
           {(Object.keys(SOURCES) as Source[]).map((s) => (
-            <button key={s} role="tab" aria-selected={source === s} onClick={() => setSource(s)}>
+            <button key={s} role="tab" aria-selected={source === s} onClick={() => pickSource(s)}>
               {SOURCES[s].label}
             </button>
           ))}
@@ -142,7 +154,7 @@ export default function DiscoverPage() {
             e.preventDefault();
             setQuery(input.trim());
           }}
-          style={{ marginBottom: 32 }}
+          style={{ marginBottom: 16 }}
         >
           <label className="sr-only" htmlFor="cat-search">
             Search {info.label}
@@ -153,6 +165,33 @@ export default function DiscoverPage() {
             <span className="label-wide">Search</span>
           </button>
         </form>
+
+        <div className="filters">
+          {source === 'gutenberg' ? (
+            <div className="chips" role="group" aria-label="Collection">
+              {(Object.keys(COLLECTIONS) as Collection[]).map((c) => (
+                <button key={c} type="button" className="chip chip-strong" aria-pressed={collection === c} onClick={() => setCollection(c)}>
+                  {COLLECTIONS[c].label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <div className="chips chips-scroll" role="group" aria-label="Genre">
+            <button type="button" className="chip" aria-pressed={genre === null} onClick={() => setGenre(null)}>
+              All genres
+            </button>
+            {genresFor(source).map((g) => (
+              <button key={g} type="button" className="chip" aria-pressed={genre === g} onClick={() => setGenre(genre === g ? null : g)}>
+                {GENRES[g].label}
+              </button>
+            ))}
+          </div>
+          {source === 'gutenberg' ? (
+            <p className="muted filters-note" aria-live="polite">
+              {COLLECTIONS[collection].blurb}
+            </p>
+          ) : null}
+        </div>
 
         {state === 'loading' ? (
           <ul className="shelf" aria-busy="true" aria-label="Loading books">
@@ -177,7 +216,7 @@ export default function DiscoverPage() {
             <h2>The catalog didn’t answer</h2>
             <p>{error}</p>
             <div className="actions">
-              <button className="btn btn-primary" onClick={() => load(source, query)}>
+              <button className="btn btn-primary" onClick={() => load(source, query, collection, genre)}>
                 Try again
               </button>
             </div>
@@ -185,14 +224,25 @@ export default function DiscoverPage() {
         ) : books.length === 0 ? (
           <div className="empty" role="status">
             <h2>No books found</h2>
-            <p>{query ? `Nothing matches “${query}” in ${info.label}.` : 'This catalog returned no books.'}</p>
-            {source === 'standard-ebooks' && query ? (
-              <div className="actions">
-                <button className="btn btn-quiet" onClick={() => setSource('gutenberg')}>
+            <p>
+              {query
+                ? `Nothing matches “${query}”${genre ? ` in ${GENRES[genre].label}` : ''} on ${info.label}.`
+                : genre
+                  ? `${info.label} has no ${GENRES[genre].label.toLowerCase()} books here right now.`
+                  : 'This catalog returned no books.'}
+            </p>
+            <div className="actions">
+              {genre ? (
+                <button className="btn btn-quiet" onClick={() => setGenre(null)}>
+                  Show all genres
+                </button>
+              ) : null}
+              {source === 'standard-ebooks' && (query || genre) ? (
+                <button className="btn btn-quiet" onClick={() => pickSource('gutenberg')}>
                   Search Project Gutenberg
                 </button>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
           </div>
         ) : (
           <>
@@ -214,7 +264,7 @@ export default function DiscoverPage() {
             </ul>
             {next ? (
               <div style={{ display: 'flex', justifyContent: 'center', marginTop: 32 }}>
-                <button className="btn btn-quiet" onClick={() => load(source, query, next)}>
+                <button className="btn btn-quiet" onClick={() => load(source, query, collection, genre, next)}>
                   Show more
                 </button>
               </div>
