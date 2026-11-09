@@ -125,13 +125,13 @@ export interface SearchResult {
 
 // ---------------------------------------------------------------------------------------------
 
-/** Case- and accent-insensitive text for matching; letters and digits of every script are kept (Greek, Cyrillic, CJK…). */
 // Plain ASCII needs no Unicode normalisation, and its letters and digits are just [a-z0-9]: the same result,
 // several times faster. Most catalog text is ASCII, and folding all of it is most of a cold start.
 // Typographic punctuation (’ “ ” — … and no-break spaces) only ever becomes a word break, so mapping it to a space
 // first lets most descriptions take the fast path too.
 const ASCII = /^[\x00-\x7f]*$/;
 const PUNCT = /[\u00a0\u00ab\u00bb\u2000-\u206f]/g;
+/** Case- and accent-insensitive text for matching; letters and digits of every script are kept (Greek, Cyrillic, CJK…). */
 export function fold(s: string) {
   if (!ASCII.test(s)) {
     const t = s.replace(PUNCT, ' ');
@@ -366,6 +366,7 @@ export class CatalogUnavailable extends Error {}
 let current: { index: CatalogIndex; meta: CatalogMeta | null } | null = null;
 let checkedAt = 0;
 let inflight: Promise<void> | null = null;
+let warming: Promise<void> | null = null;
 
 export interface CatalogMeta {
   generatedAt: string;
@@ -437,6 +438,8 @@ async function refresh() {
   // never replace a newer catalog with an older one (e.g. a stale CDN copy)
   if (current && index.generatedAt < current.index.generatedAt) return;
   current = { index, meta: meta && meta.generatedAt === index.generatedAt ? meta : (current?.meta ?? meta) };
+  // fold descriptions ahead of the first search (browsing never needs them, so nothing waits for this)
+  warming = warmDescriptions(index).catch(() => {});
 }
 
 /** The loaded index; loads it on first use and refreshes in the background when a newer build is published. */
@@ -456,27 +459,24 @@ export async function getCatalog(): Promise<{ index: CatalogIndex; meta: Catalog
     // A serverless function is frozen once its response is sent; keep it alive until a background refresh finishes.
     if (current) {
       const pending = inflight;
-      try {
-        after(() => pending);
-      } catch {
-        // outside a request (tests, scripts): the promise simply runs
-      }
+      keepAlive(() => pending.then(() => warming));
     }
   }
   if (!current && inflight) {
     await inflight;
-    // the first response no longer waits for descriptions; fold them while the instance is still awake
-    const loaded = current as { index: CatalogIndex } | null;
-    if (loaded) {
-      try {
-        after(() => warmDescriptions(loaded.index));
-      } catch {
-        // outside a request (tests, scripts): nothing to keep alive
-      }
-    }
+    // the first response no longer waits for descriptions; keep the instance awake while they are folded
+    keepAlive(() => warming);
   }
   if (!current) throw new CatalogUnavailable('The catalog index is not available yet.');
   return current;
+}
+
+function keepAlive(task: () => Promise<unknown> | null) {
+  try {
+    after(() => task());
+  } catch {
+    // outside a request (tests, scripts): the promise simply runs
+  }
 }
 
 /** Folds every description in small slices, yielding between them so searches arriving meanwhile still answer. */
@@ -496,6 +496,7 @@ export function _resetLoaderForTests(o: Partial<typeof opts> = {}) {
   current = null;
   checkedAt = 0;
   inflight = null;
+  warming = null;
   Object.assign(opts, { attempts: 3, backoffMs: [600, 2000], metaTimeoutMs: 8000, catalogTimeoutMs: 40000 }, o);
 }
 export function _expireCheckForTests() {
