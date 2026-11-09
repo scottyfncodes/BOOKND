@@ -373,7 +373,7 @@ export default function DiscoverPage() {
             Discover
           </h1>
           <p className="muted" style={{ fontSize: 14, margin: '12px 0 0', maxWidth: 560 }}>
-            {status ? `${nf.format(status.works)} books${status.languageCount ? ` in ${status.languageCount} languages` : ''}` : 'Every book'} from Standard Ebooks and Project Gutenberg in one catalog. Standard Ebooks’ carefully typeset editions come first when a book has one.
+            {status ? `${nf.format(status.works)} free books${status.languageCount ? ` in ${status.languageCount} languages` : ''}` : 'Every free book'} from Standard Ebooks and Project Gutenberg. Standard Ebooks’ carefully typeset editions come first.
           </p>
         </div>
 
@@ -430,10 +430,18 @@ export default function DiscoverPage() {
               {state === 'loading'
                 ? 'Searching the whole catalog…'
                 : result
-                  ? `${nf.format(result.total)} ${result.total === 1 ? 'book' : 'books'}${shown && shown.lang !== 'all' ? ` in ${languageName(shown.lang)}` : ''}${shown?.q ? ` for “${shown.q}”` : ''} · ${SORT_LABEL[result.sort].toLowerCase()}${
-                      result.sort === 'rating' ? ' (weighted by number of ratings)' : ''
-                    }`
-                  : ''}
+                  ? (
+                    <>
+                      {nf.format(result.total)} {result.total === 1 ? 'book' : 'books'}
+                      {shown && shown.lang !== 'all' ? ` in ${languageName(shown.lang)}` : ''}
+                      {shown?.q ? ` for “${shown.q}”` : ''}
+                      {/* on phones the sort is named in the Sort & filter sheet, so the count keeps to one line */}
+                      <span className="count-sort">
+                        {` · ${SORT_LABEL[result.sort].toLowerCase()}${result.sort === 'rating' ? ' (weighted by number of ratings)' : ''}`}
+                      </span>
+                    </>
+                  )
+                : ''}
             </p>
             <button type="button" className="btn btn-quiet filter-open" onClick={() => setFiltersOpen(true)} aria-haspopup="dialog">
               Sort &amp; filter
