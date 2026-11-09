@@ -1586,6 +1586,84 @@ input[type='range'] {
   max-width: 100%;
   font-size: 15px;
 }
+.count-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+/* On phones the ratings, language, search field and sort move into the Sort & filter sheet, so the shelf
+   starts higher and no half-empty wrapped rows are left behind. */
+.filter-open {
+  display: none;
+  flex: none;
+  gap: var(--s2);
+}
+.filter-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font: 600 12px/1 var(--sans);
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 639px) {
+  .filter-row {
+    display: none;
+  }
+  .filter-open {
+    display: inline-flex;
+  }
+  .count-bar {
+    min-height: var(--tap);
+  }
+}
+.sheet-filters {
+  display: grid;
+  gap: var(--s5);
+}
+.sheet-field {
+  display: grid;
+  gap: var(--s2);
+}
+.sheet-field .eyebrow {
+  margin: 0;
+}
+.sheet-field select.field {
+  width: 100%;
+  font-size: 16px;
+}
+.sheet-filters .chips {
+  /* three equal choices, the count beneath each: one row at any phone width */
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.sheet-filters .chip {
+  display: grid;
+  place-content: center;
+  gap: 2px;
+  min-height: 56px;
+  padding: 6px 8px;
+  border-radius: 16px;
+  white-space: normal;
+  text-align: center;
+}
+.sheet-filters .chip-count {
+  margin: 0;
+  font-size: 12.5px;
+}
+.sheet-filter-actions {
+  display: flex;
+  gap: var(--s2);
+  margin-top: var(--s6);
+}
+.sheet-filter-actions .btn-primary {
+  flex: 1;
+}
 .chip-count {
   margin-left: 6px;
   font-weight: 400;

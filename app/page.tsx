@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BookCover } from '@/components/BookCover';
 import { Byline } from '@/components/Byline';
 import { IconLibrary, IconSearch, Mark } from '@/components/Icons';
@@ -115,6 +115,7 @@ export default function DiscoverPage() {
   // once full-catalog results have been shown, a transient outage must not swap Discover to the per-source view
   const fullCatalogSeen = useRef(false);
   const [moreError, setMoreError] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
   // cover images for a fresh shelf, fetched before the shelf is shown so no tile appears blank
   const [covers, setCovers] = useState<{ loaded: number; total: number } | null>(null);
   const owned = useLive(async () => new Map((await db().books.toArray()).filter((b) => b.sourceKey).map((b) => [b.sourceKey!, b.id])), [], new Map());
@@ -263,9 +264,95 @@ export default function DiscoverPage() {
     return top;
   }, [status, f]);
 
+  const facet = result?.facets;
+  // ratings, search field, language and sort: inline on wider screens, in the Sort & filter sheet on phones
+  const active = f ? (f.rating !== 'any' ? 1 : 0) + (f.q && f.field !== 'all' ? 1 : 0) + (f.lang !== 'en' ? 1 : 0) + (f.sort ? 1 : 0) : 0;
+  const filterControls = (where: 'inline' | 'sheet') => {
+    const id = (name: string) => (where === 'inline' ? `cat-${name}` : `sheet-${name}`);
+    const ratings = (
+      <div className="chips" role="group" aria-label="Ratings">
+        {(['any', 'rated', 'unrated'] as const).map((r) => (
+          <button key={r} type="button" className="chip" aria-pressed={(f?.rating ?? 'any') === r} onClick={() => update({ rating: r })}>
+            {r === 'any' ? 'Any rating' : r === 'rated' ? 'Rated' : 'Unrated'}
+            {facet && r !== 'any' ? <span className="chip-count">{nf.format(r === 'rated' ? facet.rated : facet.unrated)}</span> : null}
+          </button>
+        ))}
+      </div>
+    );
+    const select = (name: string, label: string, el: ReactNode) =>
+      where === 'inline' ? (
+        <label className="select-label">
+          <span className="sr-only">{label}</span>
+          {el}
+        </label>
+      ) : (
+        <label className="sheet-field" htmlFor={id(name)}>
+          <span className="eyebrow">{label}</span>
+          {el}
+        </label>
+      );
+    const sortSelect = select(
+      'sort',
+      'Sort by',
+      <select id={id('sort')} className="field" value={sort} onChange={(e) => update({ sort: e.target.value as Sort })}>
+        {(Object.keys(SORT_LABEL) as Sort[])
+          .filter((s) => s !== 'relevance' || f?.q)
+          .map((s) => (
+            <option key={s} value={s}>
+              {SORT_LABEL[s]}
+            </option>
+          ))}
+      </select>,
+    );
+    const fieldSelect = select(
+      'field',
+      'Search in',
+      <select id={id('field')} className="field" value={f?.field ?? 'all'} onChange={(e) => update({ field: e.target.value as Field, q: input.trim() })}>
+        {(Object.keys(FIELD_LABEL) as Field[]).map((k) => (
+          <option key={k} value={k}>
+            {k === 'all' ? 'Search all fields' : `Search ${FIELD_LABEL[k].toLowerCase()}`}
+          </option>
+        ))}
+      </select>,
+    );
+    const langSelect = select(
+      'lang',
+      'Language',
+      <select id={id('lang')} className="field" value={f?.lang ?? 'en'} onChange={(e) => update({ lang: e.target.value })}>
+        <option value="all">All languages</option>
+        {languages.map((l) => (
+          <option key={l.code} value={l.code}>
+            {languageName(l.code)}
+          </option>
+        ))}
+      </select>,
+    );
+    if (where === 'inline')
+      return (
+        <>
+          {ratings}
+          <div className="selects">
+            {fieldSelect}
+            {langSelect}
+            {sortSelect}
+          </div>
+        </>
+      );
+    return (
+      <div className="sheet-filters">
+        {sortSelect}
+        <div className="sheet-field">
+          <span className="eyebrow">Ratings</span>
+          {ratings}
+        </div>
+        {langSelect}
+        {fieldSelect}
+      </div>
+    );
+  };
+
   if (state === 'legacy') return <LegacyDiscover />;
 
-  const facet = result?.facets;
   const filtered = !!f && (f.genre || f.source || f.rating !== 'any' || f.q);
 
   return (
@@ -337,60 +424,26 @@ export default function DiscoverPage() {
               </button>
             ))}
           </div>
-          <div className="filter-row">
-            <div className="chips" role="group" aria-label="Ratings">
-              {(['any', 'rated', 'unrated'] as const).map((r) => (
-                <button key={r} type="button" className="chip" aria-pressed={(f?.rating ?? 'any') === r} onClick={() => update({ rating: r })}>
-                  {r === 'any' ? 'Any rating' : r === 'rated' ? 'Rated' : 'Unrated'}
-                  {facet && r !== 'any' ? <span className="chip-count">{nf.format(r === 'rated' ? facet.rated : facet.unrated)}</span> : null}
-                </button>
-              ))}
-            </div>
-            <div className="selects">
-              <label className="select-label">
-                <span className="sr-only">Search in</span>
-                <select id="cat-field" className="field" value={f?.field ?? 'all'} onChange={(e) => update({ field: e.target.value as Field, q: input.trim() })}>
-                  {(Object.keys(FIELD_LABEL) as Field[]).map((k) => (
-                    <option key={k} value={k}>
-                      {k === 'all' ? 'Search all fields' : `Search ${FIELD_LABEL[k].toLowerCase()}`}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="select-label">
-                <span className="sr-only">Language</span>
-                <select id="cat-lang" className="field" value={f?.lang ?? 'en'} onChange={(e) => update({ lang: e.target.value })}>
-                  <option value="all">All languages</option>
-                  {languages.map((l) => (
-                    <option key={l.code} value={l.code}>
-                      {languageName(l.code)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="select-label">
-                <span className="sr-only">Sort by</span>
-                <select id="cat-sort" className="field" value={sort} onChange={(e) => update({ sort: e.target.value as Sort })}>
-                  {(Object.keys(SORT_LABEL) as Sort[])
-                    .filter((s) => s !== 'relevance' || f?.q)
-                    .map((s) => (
-                      <option key={s} value={s}>
-                        {SORT_LABEL[s]}
-                      </option>
-                    ))}
-                </select>
-              </label>
-            </div>
+          <div className="filter-row">{filterControls('inline')}</div>
+          <div className="count-bar">
+            <p className="muted filters-note" aria-live="polite" id="result-count">
+              {state === 'loading'
+                ? 'Searching the whole catalog…'
+                : result
+                  ? `${nf.format(result.total)} ${result.total === 1 ? 'book' : 'books'}${shown?.q ? ` for “${shown.q}”` : ''} · ${SORT_LABEL[result.sort].toLowerCase()}${
+                      result.sort === 'rating' ? ' (weighted by number of ratings)' : ''
+                    }`
+                  : ''}
+            </p>
+            <button type="button" className="btn btn-quiet filter-open" onClick={() => setFiltersOpen(true)} aria-haspopup="dialog">
+              Sort &amp; filter
+              {active ? (
+                <span className="filter-badge" aria-label={`${active} active`}>
+                  {active}
+                </span>
+              ) : null}
+            </button>
           </div>
-          <p className="muted filters-note" aria-live="polite" id="result-count">
-            {state === 'loading'
-              ? 'Searching the whole catalog…'
-              : result
-                ? `${nf.format(result.total)} ${result.total === 1 ? 'book' : 'books'}${shown?.q ? ` for “${shown.q}”` : ''} · ${SORT_LABEL[result.sort].toLowerCase()}${
-                    result.sort === 'rating' ? ' (weighted by number of ratings)' : ''
-                  }`
-                : ''}
-          </p>
         </div>
 
         {state === 'loading' ? (
@@ -499,6 +552,21 @@ export default function DiscoverPage() {
         </footer>
       </main>
 
+      {filtersOpen ? (
+        <Sheet title="Sort & filter" onClose={() => setFiltersOpen(false)}>
+          {filterControls('sheet')}
+          <div className="sheet-filter-actions">
+            {active ? (
+              <button type="button" className="btn btn-quiet" onClick={() => update({ rating: 'any', field: 'all', lang: 'en', sort: null })}>
+                Reset
+              </button>
+            ) : null}
+            <button type="button" className="btn btn-primary" onClick={() => setFiltersOpen(false)} data-autofocus>
+              {state === 'loading' || !result ? 'Show books' : `Show ${nf.format(result.total)} ${result.total === 1 ? 'book' : 'books'}`}
+            </button>
+          </div>
+        </Sheet>
+      ) : null}
       {selected ? <WorkSheet work={selected} owned={owned} adding={adding} onAdd={add} onOpen={openBook} onClose={() => setSelected(null)} /> : null}
     </div>
   );
