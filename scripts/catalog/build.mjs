@@ -38,6 +38,8 @@ const PREV = args.prev ?? 'prev';
 const OUT = args.out ?? 'out';
 const UA = 'BookNd-catalog/1.0 (+https://github.com/scottyfncodes/BOOKND; scheduled metadata sync)';
 const RDF_URL = 'https://www.gutenberg.org/cache/epub/feeds/rdf-files.tar.bz2';
+// Bump when parsing changes, so stored editions are rebuilt even if the upstream file has not changed.
+const PARSER_VERSION = 2;
 const DAY = 86400000;
 const started = Date.now();
 const now = new Date().toISOString();
@@ -124,9 +126,9 @@ async function gutenberg() {
     const head = await fetchRetry(RDF_URL, { method: 'HEAD' }).catch(() => null);
     const lastModified = head?.headers.get('last-modified') ?? null;
     stats.lastModified = lastModified;
-    if (prev?.editions?.length && lastModified && prev.lastModified === lastModified) {
+    if (prev?.editions?.length && lastModified && prev.lastModified === lastModified && prev.parser === PARSER_VERSION) {
       log(`Gutenberg: catalog unchanged since ${lastModified}; reusing ${prev.editions.length} editions`);
-      return { editions: prev.editions, stats: { ...prevMetaSource('gutenberg'), lastModified, reused: true } };
+      return { editions: prev.editions, stats: { ...prevMetaSource('gutenberg'), lastModified, reused: true }, lastModified, parser: prev.parser };
     }
     const res = await fetchRetry(RDF_URL, {}, { timeoutMs: 15 * 60000 });
     if (!res.ok || !res.body) throw new Error(`Gutenberg catalog download returned ${res.status}`);
@@ -191,7 +193,7 @@ async function standardEbooks() {
     while (i < released.length) {
       const { r, slug } = released[i++];
       const old = prev[r.name];
-      if (old && old.pushedAt === r.pushed_at && old.edition) {
+      if (old && old.pushedAt === r.pushed_at && old.edition && old.parser === PARSER_VERSION) {
         out[r.name] = old;
         stats.reused++;
         continue;
@@ -202,7 +204,7 @@ async function standardEbooks() {
         if (!res.ok) throw new Error(String(res.status));
         const edition = parseStandardEbooksOpf(await res.text(), slug);
         if (!edition.title) throw new Error('no title');
-        out[r.name] = { pushedAt: r.pushed_at, edition };
+        out[r.name] = { pushedAt: r.pushed_at, parser: PARSER_VERSION, edition };
         stats.fetched++;
       } catch (err) {
         stats.failed++;
@@ -327,7 +329,7 @@ async function main() {
   } catch (err) {
     if (!prevState.gutenberg?.editions?.length) throw err;
     meta.warnings.push(`Project Gutenberg unavailable (${err.message}); kept the previous catalog`);
-    pg = { editions: prevState.gutenberg.editions, stats: { ...prevMetaSource('gutenberg'), reused: true, error: err.message }, lastModified: prevState.gutenberg.lastModified };
+    pg = { editions: prevState.gutenberg.editions, stats: { ...prevMetaSource('gutenberg'), reused: true, error: err.message }, lastModified: prevState.gutenberg.lastModified, parser: prevState.gutenberg.parser };
   }
   meta.sources.gutenberg = pg.stats;
   const prevReadable = prevState.gutenberg?.editions?.length ?? 0;
@@ -396,7 +398,7 @@ async function main() {
     gzipSync(
       JSON.stringify({
         version: SNAPSHOT_VERSION,
-        gutenberg: { lastModified: pg.lastModified ?? pg.stats.lastModified ?? null, editions: pg.editions },
+        gutenberg: { lastModified: pg.lastModified ?? pg.stats.lastModified ?? null, parser: pg.parser ?? PARSER_VERSION, editions: pg.editions },
         standardEbooks: { repos: se.repos },
         ratings: ol.ratings,
       }),

@@ -235,7 +235,7 @@ export function gutenbergEdition(rec) {
     description: rec.summary.slice(0, 1200),
     issued: rec.issued,
     downloads: rec.downloads,
-    cover: rec.cover || `https://www.gutenberg.org/cache/epub/${rec.id}/pg${rec.id}.cover.medium.jpg`,
+    cover: rec.cover, // only when the record lists one; older ebooks have none and get BookNd's typeset cover
     pageUrl: `https://www.gutenberg.org/ebooks/${rec.id}`,
     epubUrl: `https://www.gutenberg.org/ebooks/${rec.id}.epub3.images`,
     gutenbergIds: [rec.id],
