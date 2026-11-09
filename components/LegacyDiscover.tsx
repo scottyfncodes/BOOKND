@@ -1,4 +1,5 @@
 'use client';
+import { LoadingBar } from '@/components/LoadingBar';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -202,13 +203,7 @@ export function LegacyDiscover() {
         </div>
 
         {state === 'loading' ? (
-          <ul className="shelf" aria-busy="true" aria-label="Loading books">
-            {Array.from({ length: 10 }, (_, i) => (
-              <li key={i}>
-                <div className="cover" style={{ boxShadow: 'none', opacity: 0.45 }} />
-              </li>
-            ))}
-          </ul>
+          <LoadingBar />
         ) : state === 'offline' ? (
           <div className="empty" role="status">
             <h2>You’re offline</h2>
