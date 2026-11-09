@@ -11,7 +11,10 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "e2e": "node tests/e2e.mjs",
-    "export:static": "node scripts/export-static.mjs"
+    "export:static": "node scripts/export-static.mjs",
+    "e2e:discover": "node tests/e2e-discover.mjs",
+    "catalog:build": "node scripts/catalog/build.mjs --prev prev --out out",
+    "catalog:verify": "node scripts/catalog/verify.mjs"
   },
   "dependencies": {
     "@xmldom/xmldom": "0.8.11",

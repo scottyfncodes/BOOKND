@@ -7,6 +7,7 @@ describe('download allow-list (not an open proxy)', () => {
     ['https://www.gutenberg.org/ebooks/1342.epub.noimages', true],
     ['https://www.gutenberg.org/cache/epub/1342/pg1342-images-3.epub', true],
     ['https://standardebooks.org/ebooks/jane-austen/pride-and-prejudice/downloads/jane-austen_pride-and-prejudice.epub', true],
+    ['https://standardebooks.org/ebooks/leo-tolstoy/war-and-peace/louise-maude_aylmer-maude/downloads/leo-tolstoy_war-and-peace_louise-maude_aylmer-maude.epub', true],
     ['http://www.gutenberg.org/ebooks/1342.epub3.images', false],
     ['https://evil.example/ebooks/1342.epub3.images', false],
     ['https://www.gutenberg.org.evil.example/ebooks/1342.epub3.images', false],

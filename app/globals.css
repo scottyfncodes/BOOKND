@@ -1524,3 +1524,60 @@ input[type='range'] {
   text-underline-offset: 2px;
   cursor: pointer;
 }
+
+/* Discover: unified catalog (ratings, sort and language, editions) */
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2) var(--s3);
+  align-items: center;
+  justify-content: space-between;
+}
+.selects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.select-label select.field {
+  width: auto;
+  max-width: 100%;
+  font-size: 15px;
+}
+.chip-count {
+  margin-left: 6px;
+  font-weight: 400;
+  opacity: 0.72;
+  font-variant-numeric: tabular-nums;
+}
+.book-rating {
+  font-size: 12.5px;
+  margin: 4px 0 0;
+  font-variant-numeric: tabular-nums;
+}
+.rating {
+  color: var(--accent-text);
+}
+.rating .muted,
+.rating-none {
+  color: var(--muted);
+}
+.badge {
+  display: inline-block;
+  margin-left: var(--s2);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sage) 22%, transparent);
+  color: var(--text);
+  font: 500 11.5px/1.4 var(--sans);
+  vertical-align: 1px;
+}
+.edition {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s3) 0;
+}
+.edition .btn {
+  flex: none;
+}
