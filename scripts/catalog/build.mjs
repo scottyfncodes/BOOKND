@@ -232,7 +232,7 @@ async function openLibrary(editions) {
   if (process.env.SKIP_RATINGS === '1') return { ratings, stats: { ...stats, skipped: true } };
   const pace = pacer(1100); // ≤ 1 request a second, as Open Library asks of unauthenticated clients
   const budget = Number(process.env.RATINGS_BUDGET ?? 900);
-  const searchBudget = Number(process.env.SEARCH_BUDGET ?? 500);
+  const searchBudget = Number(process.env.SEARCH_BUDGET ?? 1500);
   const deadline = started + Number(process.env.RATINGS_MINUTES ?? 150) * 60000;
   const pg = editions.filter((e) => e.source === 'gutenberg');
   const reject = (why) => (stats.rejected[why] = (stats.rejected[why] ?? 0) + 1);
@@ -274,7 +274,7 @@ async function openLibrary(editions) {
       const good = candidates.filter((c) => c.j.ok).sort((a, b) => b.j.confidence - a.j.confidence || (b.d.ratings_count ?? 0) - (a.d.ratings_count ?? 0));
       candidates.filter((c) => !c.j.ok).forEach((c) => reject(c.j.reason));
       const prev = ratings[e.key] ?? {};
-      if (good.length) {
+      if (good.length && !(prev.m === 'title-author' && prev.n > 0 && !(good[0].d.ratings_count > 0))) {
         const { d, j } = good[0];
         ratings[e.key] = { w: d.key, v: d.ratings_average ?? null, n: d.ratings_count ?? 0, c: j.confidence, m: j.method, at, idAt: at };
         stats.matchedById++;
@@ -292,7 +292,8 @@ async function openLibrary(editions) {
   const searchDue = pg
     .filter((e) => {
       const r = ratings[e.key];
-      return r && !r.w && r.idAt && Date.now() - Date.parse(r.sAt ?? 0) > 60 * DAY && e.authorKeys.length;
+      // unmatched, or matched by id to an Open Library work that has no ratings (often a duplicate work record)
+      return r && (!r.w || !r.n) && r.idAt && Date.now() - Date.parse(r.sAt ?? 0) > 60 * DAY && e.authorKeys.length;
     })
     .sort((a, b) => b.downloads - a.downloads)
     .slice(0, searchBudget);
@@ -302,7 +303,7 @@ async function openLibrary(editions) {
     try {
       const docs = await olSearch(new URLSearchParams({ title: e.title.split(/[:;]/)[0], author: e.authors[0] ?? '', fields: OL_FIELDS, limit: '10' }));
       const j = judgeSearchMatch(e, docs);
-      if (j.ok) {
+      if (j.ok && (j.doc.ratings_count ?? 0) > 0) {
         ratings[e.key] = { ...ratings[e.key], w: j.doc.key, v: j.doc.ratings_average ?? null, n: j.doc.ratings_count ?? 0, c: j.confidence, m: j.method, at, sAt: at };
         stats.matchedBySearch++;
       } else {

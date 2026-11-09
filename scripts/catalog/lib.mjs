@@ -352,7 +352,8 @@ export function groupEditions(editions, providerWorkOf = () => null) {
     for (const id of e.gutenbergIds) {
       const pg = byKey.get(`gutenberg:${id}`);
       // the cited transcription may be in another language (a translation's source); keep those apart
-      if (pg && pg.language === e.language) uf.union(e.key, pg.key);
+      // …and only when it is the same text: a collection ("Dialogues", "Short Fiction") cites many sources
+      if (pg && pg.language === e.language && sameWorkTitle(e.title, pg.title)) uf.union(e.key, pg.key);
     }
   }
   const byMatch = new Map();
@@ -367,8 +368,10 @@ export function groupEditions(editions, providerWorkOf = () => null) {
     const w = providerWorkOf(e);
     if (!w) continue;
     const k = `${e.language}|${w}`;
-    if (byWork.has(k)) uf.union(byWork.get(k), e.key);
-    else byWork.set(k, e.key);
+    const first = byWork.get(k);
+    if (!first) byWork.set(k, e.key);
+    // provider works are crowd-edited and sometimes lump separate texts together; require matching titles too
+    else if (sameWorkTitle(byKey.get(first).title, e.title)) uf.union(first, e.key);
   }
   const groups = new Map();
   for (const e of editions) {
@@ -382,6 +385,15 @@ export function groupEditions(editions, providerWorkOf = () => null) {
       return b.downloads - a.downloads || a.key.localeCompare(b.key, 'en', { numeric: true });
     }),
   );
+}
+
+/** Two edition titles name the same work: equal main titles, or most of their words in common. */
+export function sameWorkTitle(a, b) {
+  const ka = mainTitleKey(a);
+  const kb = mainTitleKey(b);
+  if (!ka || !kb) return false;
+  // "The Iliad" / "The Iliad of Homer": one title extends the other
+  return ka === kb || kb.startsWith(`${ka} `) || ka.startsWith(`${kb} `) || titleSimilarity(a, b) >= 0.5;
 }
 
 // ---------------------------------------------------------------------------------------------

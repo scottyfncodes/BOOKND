@@ -124,22 +124,28 @@ export interface SearchResult {
 
 // ---------------------------------------------------------------------------------------------
 
+/** Case- and accent-insensitive text for matching; letters and digits of every script are kept (Greek, Cyrillic, CJK…). */
 export function fold(s: string) {
   return s
     .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/\p{M}+/gu, '')
     .toLowerCase()
     .replace(/&/g, ' and ')
-    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
 }
 const hay = (s: string) => ` ${fold(s)} `;
+/** Title sort key: leading article and punctuation ignored; numbers and Latin-script titles first, then other scripts. */
 function sortTitle(t: string) {
-  return fold(t).replace(/^(the|a|an) /, '');
+  const k = fold(t).replace(/^(the|a|an) /, '');
+  // numbers, then Latin script (accents folded), then other scripts
+  return /^[a-z0-9]/.test(k) ? `0${k}` : /\p{L}/u.test(k) ? `1${k}` : `2${k}`;
 }
 function surname(name: string | undefined) {
   if (!name) return '￿';
-  const parts = fold(name.replace(/\(.*?\)/g, '')).split(' ');
+  const parts = fold(name.replace(/\(.*?\)/g, ''))
+    .split(' ')
+    .filter(Boolean);
   return parts.length ? `${parts[parts.length - 1]} ${parts.slice(0, -1).join(' ')}` : '￿';
 }
 
