@@ -1621,6 +1621,9 @@ input[type='range'] {
   .count-bar {
     min-height: var(--tap);
   }
+  .count-sort {
+    display: none;
+  }
 }
 .sheet-filters {
   display: grid;
