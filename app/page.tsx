@@ -275,16 +275,6 @@ export default function DiscoverPage() {
             enterKeyHint="search"
             autoComplete="off"
           />
-          <label className="sr-only" htmlFor="cat-field">
-            Search in
-          </label>
-          <select id="cat-field" className="field" value={f?.field ?? 'all'} onChange={(e) => update({ field: e.target.value as Field, q: input.trim() })}>
-            {(Object.keys(FIELD_LABEL) as Field[]).map((k) => (
-              <option key={k} value={k}>
-                {FIELD_LABEL[k]}
-              </option>
-            ))}
-          </select>
           <button className="btn btn-primary" type="submit" aria-label="Search">
             <IconSearch width={18} height={18} />
             <span className="label-wide">Search</span>
@@ -312,6 +302,16 @@ export default function DiscoverPage() {
               ))}
             </div>
             <div className="selects">
+              <label className="select-label">
+                <span className="sr-only">Search in</span>
+                <select id="cat-field" className="field" value={f?.field ?? 'all'} onChange={(e) => update({ field: e.target.value as Field, q: input.trim() })}>
+                  {(Object.keys(FIELD_LABEL) as Field[]).map((k) => (
+                    <option key={k} value={k}>
+                      {k === 'all' ? 'Search all fields' : `Search ${FIELD_LABEL[k].toLowerCase()}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label className="select-label">
                 <span className="sr-only">Language</span>
                 <select className="field" value={f?.lang ?? 'en'} onChange={(e) => update({ lang: e.target.value })}>
