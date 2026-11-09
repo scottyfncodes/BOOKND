@@ -113,10 +113,11 @@ state records the Open Library work key, average, count, match confidence, metho
   An author mismatch is always rejected.
 - **title-author** (0.75): searched with a cleaned main title (no subtitle, translator note, `[…]` or MARC marker)
   and the author's surname. The work's main title must be the *same* as the edition's (so "Pride and Prejudice
-  and Zombies" never matches "Pride and Prejudice"); volumes ("[3/5]", "Part 2") are different books, and a single
-  volume ("— Volume 07", "Vol. 2 of 3") is never rated through a search. For a translated edition, a work that names
-  someone other than the author and the edition's own translator (Open Library files some translations as works of
-  their own, e.g. *The Odyssey* by Homer and Emily R. Wilson) describes another translation and is not used.
+  and Zombies" never matches "Pride and Prejudice"). A Gutenberg volume ("Madame Bovary, Vol. 1 (of 2)") shows its
+  work's rating. For a translated edition, a work that names other people but not the edition's own translator
+  (Open Library files some translations as works of their own, e.g. *The Odyssey* by Homer and Emily R. Wilson)
+  describes another translation and is not used; the main work record, which often lists many translators
+  including ours, stays acceptable.
 - **Choosing among duplicate records** (all of which passed the identity checks): records with ≥ 5 ratings come
   first, then the most reader activity. A record with 1–4 ratings is accepted only when no other active record
   exists, and never for a *translated* edition found by search – a small English-titled record is how a wrong

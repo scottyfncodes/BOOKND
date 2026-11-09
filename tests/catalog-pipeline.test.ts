@@ -315,11 +315,14 @@ describe('matching against real Open Library data', () => {
     expect(judgeSearchMatch(garnett, [{ key: '/works/X', title: 'Crime and Punishment', author_name: ['Fyodor Dostoyevsky', 'Constance Garnett'], ratings_count: 30, readinglog_count: 10 }]).ok).toBe(true);
     expect(judgeSearchMatch(garnett, [{ key: '/works/Y', title: 'Crime and Punishment', author_name: ['Michael R. Katz', 'Фёдор Михайлович Достоевский'], author_alternative_name: ['Dostoyevsky'], ratings_count: 30, readinglog_count: 10 }]).ok).toBe(false);
   });
-  it('does not rate a single volume through a title search', () => {
-    const vol = pg({ title: 'A Tramp Abroad — Volume 07', authorKeys: ['twain m'] });
-    expect(judgeSearchMatch(vol, [{ key: '/works/OL53918W', title: 'A Tramp Abroad', author_name: ['Mark Twain'], ratings_count: 12, readinglog_count: 50 }]).reason).toBe('volume-of-work');
-    const play = pg({ title: 'King Henry IV, Part 1', authorKeys: ['shakespeare w'] });
-    expect(judgeSearchMatch(play, [{ key: '/works/OL1W', title: 'King Henry IV, Part 1', author_name: ['William Shakespeare'], ratings_count: 12, readinglog_count: 50 }]).ok).toBe(true);
+  it("keeps the main work record that lists this edition's translator among others (Ars Amatoria)", () => {
+    const riley = pg({ title: 'Ars Amatoria; or, The Art Of Love Literally Translated into English Prose', authorKeys: ['ovid'], translators: ['Henry T. Riley'] });
+    const doc = { key: '/works/OL97725W', title: 'Ars Amatoria', author_name: ['Ovid', 'Niklas Holzberg', 'Len Krisak', 'Henry T. Riley'], ratings_average: 4.08, ratings_count: 12, readinglog_count: 280 };
+    expect(judgeSearchMatch(riley, [doc]).ok).toBe(true);
+  });
+  it("gives a volume its work's rating, as before (Madame Bovary, Vol. 1 (of 2))", () => {
+    const vol = pg({ title: 'Madame Bovary: A Tale of Provincial Life, Vol. 1 (of 2)', authorKeys: ['flaubert g'] });
+    expect(judgeSearchMatch(vol, [{ key: '/works/OL1W', title: 'Madame Bovary', author_name: ['Gustave Flaubert'], ratings_count: 57, readinglog_count: 900 }]).ok).toBe(true);
   });
   it('treats volumes as different books and cleans titles for searching', () => {
     expect(searchTitle('The Odyssey Rendered into English prose for the use of those who cannot read the original')).toBe('The Odyssey');

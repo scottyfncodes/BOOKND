@@ -435,7 +435,7 @@ export function titleSimilarity(a, b) {
 }
 
 /** Bump when matching rules change: every stored match is re-checked under the new rules. */
-export const MATCHER_VERSION = 4;
+export const MATCHER_VERSION = 5;
 
 /** Surname without vowels and soft letters, so transliterations agree: Dostoevsky / Dostoyevsky / Dostoievski. */
 function surnameSkeleton(s) {
@@ -537,27 +537,24 @@ export function judgeIdentifierMatch(edition, doc) {
  * Title-and-author search fallback: the work's main title (or an alternative title) must equal the edition's and
  * one of its authors must agree (any of their names); among the works that pass, one must clearly dominate (see choose()).
  */
-/** "— Volume 07", "Vol. 2 of 3", "(of 3)": one volume of a larger work (not "Henry IV, Part 1", which is a play). */
-const VOLUME_IN_TITLE = /\b(vol\.?|volume|tome)\s*(\d+|[ivxlc]+)\b|\(\s*of\s+\d+\s*\)/i;
-
 /**
  * Open Library files some translations as works of their own, listing the translator among the authors
- * ("The Odyssey" by Homer and Emily R. Wilson). For a translated edition, a work naming someone who is neither
- * the edition's author nor its own translator describes another translation.
+ * ("The Odyssey" by Homer and Emily R. Wilson). For a translated edition, a work that names other people and not
+ * this edition's own translator describes another translation. (The main work record often lists many
+ * translators, including ours – Ovid's "Ars Amatoria" lists Henry T. Riley – and stays acceptable.)
  */
 function namesAnotherTranslator(edition, doc) {
   if (!edition.translators?.length) return false;
-  const own = [...edition.authorKeys, ...edition.translators.map(authorKey)].map((k) => k.split(' ')[0]).filter(Boolean);
-  return (doc.author_name ?? []).some((n) => {
-    const s = authorKey(n).split(' ')[0];
-    return s && !own.some((o) => surnamesAgree(o, s));
-  });
+  const authors = edition.authorKeys.map((k) => k.split(' ')[0]).filter(Boolean);
+  const translators = edition.translators.map((t) => authorKey(t).split(' ')[0]).filter(Boolean);
+  const names = (doc.author_name ?? []).map((n) => authorKey(n).split(' ')[0]).filter(Boolean);
+  const others = names.filter((s) => !authors.some((a) => surnamesAgree(a, s)));
+  if (!others.length) return false;
+  return !others.some((s) => translators.some((t) => surnamesAgree(t, s)));
 }
 
 export function judgeSearchMatch(edition, docs) {
   if (!edition.authorKeys.length) return { ok: false, reason: 'no-author' };
-  // a single volume must not borrow the whole work's rating through a title search
-  if (VOLUME_IN_TITLE.test(edition.title)) return { ok: false, reason: 'volume-of-work' };
   const want = mainTitleKey(searchTitle(edition.title));
   if (want.split(' ').length < 2 && want.length < 6) return { ok: false, reason: 'title-too-generic' };
   // a search is weaker evidence than an id link: the main title must be the same (spacing aside), so
