@@ -44,7 +44,8 @@ export function isAllowedEpubUrl(raw: string): boolean {
     );
   }
   if (u.hostname === SE_HOST) {
-    return /^\/ebooks\/[a-z0-9-]+(\/[a-z0-9-]+){1,4}\/downloads\/[a-z0-9_-]+\.epub$/.test(u.pathname);
+    // slugs join several translators or illustrators with "_" (e.g. leo-tolstoy/war-and-peace/louise-maude_aylmer-maude)
+    return /^\/ebooks\/[a-z0-9-]+(\/[a-z0-9_-]+){1,4}\/downloads\/[a-z0-9_-]+\.epub$/.test(u.pathname);
   }
   return false;
 }

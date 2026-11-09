@@ -18,4 +18,6 @@ BASE_URL=http://localhost:3100 npm run e2e   # Chromium end-to-end checks (phone
 
 Stack: Next.js (App Router), React, TypeScript, Tailwind CSS, epub.js, Dexie. No database, no accounts.
 
+Discover searches one unified catalog (every readable Project Gutenberg ebook and every released Standard Ebooks title, editions grouped into works, Open Library ratings), rebuilt daily from official bulk metadata by the `Catalog` GitHub workflow. See [docs/catalog.md](docs/catalog.md).
+
 BookNd by [HaveAnApp](https://haveanapp.com).
