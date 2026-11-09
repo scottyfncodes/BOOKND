@@ -124,3 +124,26 @@ fallback retries a book after 60 days; at most 1,500 searches per run.
 - **Observability**: the workflow's run summary (counts, requests, rate-limit hits, warnings), the `meta.json`
   artifact kept for 30 days, and `GET /api/catalog/status` on the live site.
 - **Run manually**: Actions → Catalog → Run workflow (inputs: ratings budget, search budget, skip ratings).
+
+## Phase 4 verification (production, 2026-11-09)
+
+Build `42553242657` (catalog generated 2026-11-09T02:52Z), checked on https://booknd-lake.vercel.app with
+`scripts/catalog/verify.mjs` and `tests/e2e-discover.mjs` (iPhone 13):
+
+| | Count | How it was verified |
+|---|---|---|
+| Gutenberg RDF records read | 79,768 | build report |
+| Readable Gutenberg ebooks indexed (Text + EPUB + US public domain) | 77,692 | excluded: 1,642 without EPUB, 420 copyrighted, 14 not text |
+| Standard Ebooks released ebooks indexed | 1,542 of 1,542 released repositories | 0 parse failures |
+| Editions indexed | 79,234 | `/api/catalog/status` = build report |
+| Works after grouping (searchable) | 77,326 (61,164 in English) | `/api/search?lang=all` total = loaded works |
+| Works with an Open Library rating | 1,049 (935 in English) | rated + unrated = total, overall and per language |
+| Unrated works (discoverable, `Unrated` filter) | 76,277 | e2e: filter shows only unrated books |
+| Download allow-list | 1,542 / 1,542 Standard Ebooks URLs; all Gutenberg URLs share one pattern | every SE URL checked against the allow-list |
+| EPUBs actually downloaded through `/api/download` | 25/25 Gutenberg, 24/25 Standard Ebooks (the miss led to the multi-author allow-list fix) | random sample, ZIP + `mimetype` checked |
+| End to end | Pride and Prejudice (Standard Ebooks edition) added from Discover and opened in the reader on an iPhone 13 profile | e2e |
+
+Not every one of the 79,234 EPUBs has been downloaded; readability rests on catalog metadata (an EPUB format is
+listed), the allow-list check above and the random sample. Open Library ratings are sparse for public-domain
+titles: of ~9,400 editions matched to an Open Library work, most of those works have no ratings at all, so they
+stay Unrated; matches that were ambiguous (972 in the last run) are left unrated rather than guessed.

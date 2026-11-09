@@ -308,7 +308,7 @@ async function openLibrary(editions) {
         stats.matchedBySearch++;
       } else {
         ratings[e.key] = { ...ratings[e.key], sAt: at };
-        reject(j.reason);
+        reject(j.ok ? 'match-has-no-ratings' : j.reason);
       }
     } catch (err) {
       stats.errors++;

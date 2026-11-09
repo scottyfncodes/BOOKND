@@ -208,6 +208,10 @@ describe('collections and crowd-edited works do not swallow separate books', () 
     expect(groups.find((g) => g[0].key === dialogues.key)!.map((e) => e.key)).toEqual([dialogues.key, 'gutenberg:9999']);
     expect(groups).toHaveLength(3);
   });
+  it('treats spacing and hyphenation variants as the same title', () => {
+    const se = pg({ key: 'se:x/the-powerhouse', source: 'standard-ebooks', title: 'The Powerhouse', authorKeys: ['buchan j'], gutenbergIds: [7] });
+    expect(groupEditions([se, pg({ key: 'gutenberg:7', title: 'The Power-House', authorKeys: ['buchan j'], gutenbergIds: [7] })])).toHaveLength(1);
+  });
   it('ignores a provider work that lumps differently titled books together', () => {
     const g = groupEditions(
       [pg({ key: 'gutenberg:1', title: 'Euthyphro', authorKeys: ['plato'] }), pg({ key: 'gutenberg:2', title: 'Crito', authorKeys: ['plato'] })],
