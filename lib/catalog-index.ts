@@ -1,4 +1,5 @@
 import { gunzipSync } from 'node:zlib';
+import { after } from 'next/server';
 import { isGenre, type GenreId } from '@/lib/browse';
 import { coverProxy } from '@/lib/catalog';
 
@@ -370,6 +371,15 @@ export async function getCatalog(): Promise<{ index: CatalogIndex; meta: Catalog
       .finally(() => {
         inflight = null;
       });
+    // A serverless function is frozen once its response is sent; keep it alive until a background refresh finishes.
+    if (current) {
+      const pending = inflight;
+      try {
+        after(() => pending);
+      } catch {
+        // outside a request (tests, scripts): the promise simply runs
+      }
+    }
   }
   if (!current && inflight) await inflight;
   if (!current) throw new CatalogUnavailable('The catalog index is not available yet.');
