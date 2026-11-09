@@ -12,8 +12,13 @@ import {
   groupEditions,
   gutenbergEdition,
   isReadableGutenberg,
+  cleanTitle,
+  judgeIdentifierCandidates,
   judgeIdentifierMatch,
   judgeSearchMatch,
+  searchTitle,
+  surnamesAgree,
+  workRating,
   parseGutenbergRdf,
   parseStandardEbooksOpf,
   readTar,
@@ -177,11 +182,11 @@ describe('rating matches (work-level, never guessed)', () => {
   });
   it('accepts a title/author search only for an exact, unambiguous match', () => {
     const docs = [
-      { key: '/works/OL1W', title: 'Pride and Prejudice', author_name: ['Jane Austen'], edition_count: 900 },
-      { key: '/works/OL2W', title: 'Pride and Prejudice', author_name: ['Jane Austen'], edition_count: 3 },
+      { key: '/works/OL1W', title: 'Pride and Prejudice', author_name: ['Jane Austen'], ratings_count: 416, readinglog_count: 9000 },
+      { key: '/works/OL2W', title: 'Pride and Prejudice', author_name: ['Jane Austen'], ratings_count: 28, readinglog_count: 300 },
     ];
-    expect(judgeSearchMatch(e, docs)).toMatchObject({ ok: true, confidence: 0.75 });
-    expect(judgeSearchMatch(e, [docs[0], { ...docs[1], edition_count: 500 }]).reason).toBe('ambiguous');
+    expect(judgeSearchMatch(e, docs)).toMatchObject({ ok: true, confidence: 0.75, doc: { key: '/works/OL1W' } });
+    expect(judgeSearchMatch(e, [docs[0], { ...docs[1], ratings_count: 400, readinglog_count: 8000 }]).reason).toBe('ambiguous');
     expect(judgeSearchMatch(e, [{ ...docs[0], title: 'Pride and Prejudice and Zombies' }]).reason).toBe('no-match');
     expect(judgeSearchMatch(pg({ title: 'Poems', authorKeys: ['keats j'] }), docs).reason).toBe('title-too-generic');
     expect(judgeSearchMatch(pg({ title: 'Pride and Prejudice' }), docs).reason).toBe('no-author');
@@ -218,5 +223,97 @@ describe('collections and crowd-edited works do not swallow separate books', () 
       () => '/works/OL1W',
     );
     expect(g).toHaveLength(2);
+  });
+});
+
+// Shapes below are taken from real Open Library search responses (November 2026).
+describe('matching against real Open Library data', () => {
+  const jane = pg({ key: 'gutenberg:1260', title: 'Jane Eyre: An Autobiography', authorKeys: ['bronte c'] });
+  const janeDocs = [
+    { key: '/works/OL1095427W', title: 'Jane Eyre', author_name: ['Charlotte Brontë'], ratings_average: 4.04, ratings_count: 191, readinglog_count: 1504, edition_count: 1170 },
+    { key: '/works/OL37840844W', title: 'Jane Eyre', author_name: ['Charlotte Brontë', 'Naunerle C. Farr'], ratings_average: 5, ratings_count: 1, readinglog_count: 9, edition_count: 558 },
+    { key: '/works/OL36754933W', title: 'Jane Eyre', author_name: ['Charlotte Brontë'], ratings_average: 4, ratings_count: 1, readinglog_count: 3, edition_count: 85 },
+  ];
+  it('chooses between duplicates by reader activity, not edition count (Jane Eyre)', () => {
+    expect(judgeSearchMatch(jane, janeDocs)).toMatchObject({ ok: true, doc: { key: '/works/OL1095427W' } });
+  });
+  it('never picks a better-rated work that fails the identity checks', () => {
+    const imposter = { key: '/works/OLX', title: 'Jane Eyre: A Graphic Novel', author_name: ['Amy Corzine'], ratings_count: 5000, readinglog_count: 90000 };
+    const wrongTitle = { key: '/works/OLY', title: 'Villette', author_name: ['Charlotte Brontë'], ratings_count: 5000, readinglog_count: 90000 };
+    expect(judgeSearchMatch(jane, [imposter, wrongTitle, ...janeDocs]).doc.key).toBe('/works/OL1095427W');
+  });
+  it('matches authors through alternative names and transliterations (War and Peace)', () => {
+    const wp = pg({ key: 'gutenberg:2600', title: 'War and Peace', authorKeys: ['tolstoy l'] });
+    const docs = [
+      { key: '/works/OL267171W', title: 'War and Peace', author_name: ['Лев Толстой'], author_alternative_name: ['Leo Tolstoy', 'Lev Nikolaevich Tolstoi'], ratings_average: 4.23, ratings_count: 43, readinglog_count: 748 },
+      { key: '/works/OL36765642W', title: 'War and Peace', author_name: ['Лев Толстой'], author_alternative_name: ['Tolstoj'], ratings_average: 3.75, ratings_count: 4, readinglog_count: 91 },
+    ];
+    expect(judgeSearchMatch(wp, docs)).toMatchObject({ ok: true, doc: { key: '/works/OL267171W' } });
+    expect(surnamesAgree('dostoyevsky', 'dostoievski')).toBe(true);
+    expect(surnamesAgree('tolstoy', 'tolstoj')).toBe(true);
+    expect(surnamesAgree('austen', 'alston')).toBe(false);
+    expect(surnamesAgree('poe', 'pye')).toBe(false); // short names must match exactly
+  });
+  it('accepts an id-linked work titled in its original script when the author agrees (Crime and Punishment)', () => {
+    const cp = pg({ key: 'gutenberg:2554', title: 'Crime and Punishment', authorKeys: ['dostoyevsky f'] });
+    const docs = [
+      { key: '/works/OL166894W', title: 'Преступление и наказание', author_name: ['Fiódor Dostoievski'], author_alternative_name: ['Fyodor Dostoyevsky'], ratings_average: 4.3, ratings_count: 163, readinglog_count: 3107 },
+      { key: '/works/OL46164005W', title: 'Crime and Punishment', author_name: ['Fyodor Dostoyevsky'], ratings_count: 0, readinglog_count: 0 },
+    ];
+    const j = judgeIdentifierCandidates(cp, docs);
+    expect(j).toMatchObject({ ok: true, doc: { key: '/works/OL166894W' }, confidence: 0.85 });
+    // …but a Latin-script title that names another book is still rejected
+    expect(judgeIdentifierCandidates(cp, [{ ...docs[0], title: 'The Idiot' }]).ok).toBe(false);
+    // …and a non-Latin title with a different author is rejected
+    expect(judgeIdentifierCandidates(cp, [{ ...docs[0], author_name: ['Лев Толстой'], author_alternative_name: ['Leo Tolstoy'] }]).ok).toBe(false);
+  });
+  it('rejects small duplicate records instead of guessing (The Count of Monte Cristo)', () => {
+    const mc = pg({ key: 'gutenberg:1184', title: 'The Count of Monte Cristo', authorKeys: ['dumas a'] });
+    const docs = [
+      { key: '/works/OL43161739W', title: 'The Count of Monte Cristo', author_name: ['Alexandre Dumas'], ratings_count: 0, readinglog_count: 13 },
+      { key: '/works/OL20201553W', title: 'The Count of Monte Cristo', author_name: ['Alexandre Dumas'], ratings_average: 4, ratings_count: 1, readinglog_count: 3 },
+      { key: '/works/OL36277W', title: 'The Count of Monte-Cristo [3/5]', author_name: ['Alexandre Dumas'], ratings_count: 0, readinglog_count: 5 },
+      { key: '/works/OL41849988W', title: 'Count of Monte Cristo', author_name: ['Alexandre Dumas'], ratings_average: 5, ratings_count: 1, readinglog_count: 2 },
+    ];
+    expect(judgeSearchMatch(mc, docs).ok).toBe(false);
+    // one clearly dominant small record is still refused while other active duplicates exist
+    expect(judgeSearchMatch(mc, [{ ...docs[1], readinglog_count: 400 }, docs[3]]).reason).toBe('weak-among-duplicates');
+  });
+  it('treats volumes as different books and cleans titles for searching', () => {
+    expect(searchTitle('The Odyssey Rendered into English prose for the use of those who cannot read the original')).toBe('The Odyssey');
+    expect(searchTitle('The Adventures of Sherlock Holmes [12 stories]')).toBe('The Adventures of Sherlock Holmes');
+    expect(cleanTitle('The silent Baltic : $b or, Detained near Kiel')).toBe('The silent Baltic: or, Detained near Kiel');
+  });
+});
+
+describe("a work's rating", () => {
+  const ed = (key: string) => pg({ key });
+  it('is never hidden by an unrated match with higher confidence (King Henry IV, Part 1)', () => {
+    const group = [ed('gutenberg:1516'), ed('gutenberg:1115'), ed('gutenberg:1780')];
+    const ratings = {
+      'gutenberg:1516': { w: '/works/OL1W', v: 3.83, n: 12, c: 0.9, m: 'gutenberg-id', at: 't' },
+      'gutenberg:1115': { w: '/works/OL2W', v: null, n: 0, c: 0.98, m: 'gutenberg-id', at: 't' },
+      'gutenberg:1780': { w: '/works/OL3W', v: 0, n: 0, c: 0.98, m: 'gutenberg-id', at: 't' },
+    };
+    expect(workRating(group, ratings)).toMatchObject({ v: 3.83, n: 12, w: '/works/OL1W', via: 'gutenberg:1516' });
+  });
+  it('prefers the more certain of two rated matches, and is undefined when nothing is rated', () => {
+    const group = [ed('gutenberg:1'), ed('gutenberg:2')];
+    expect(
+      workRating(group, {
+        'gutenberg:1': { w: '/works/A', v: 4, n: 300, c: 0.75, m: 'title-author', at: 't' },
+        'gutenberg:2': { w: '/works/B', v: 3.9, n: 40, c: 0.98, m: 'gutenberg-id', at: 't' },
+      }),
+    ).toMatchObject({ w: '/works/B' });
+    expect(workRating(group, { 'gutenberg:1': { w: '/works/A', v: null, n: 0, c: 0.98 } })).toBeUndefined();
+    expect(workRating(group, {})).toBeUndefined();
+  });
+});
+
+describe('search matches need the same main title', () => {
+  it('does not take a mash-up that shares an author', () => {
+    const e = pg({ title: 'Pride and Prejudice', authorKeys: ['austen j'] });
+    const zombies = { key: '/works/OL15093171W', title: 'Pride and Prejudice and Zombies', author_name: ['Seth Grahame-Smith', 'Jane Austen'], ratings_count: 16, readinglog_count: 107 };
+    expect(judgeSearchMatch(e, [zombies]).ok).toBe(false);
   });
 });

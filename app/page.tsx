@@ -110,6 +110,9 @@ export default function DiscoverPage() {
   const [adding, setAdding] = useState<string | null>(null);
   const [status, setStatus] = useState<{ works: number; languages: { code: string; works: number }[] } | null>(null);
   const req = useRef(0);
+  // once full-catalog results have been shown, a transient outage must not swap Discover to the per-source view
+  const fullCatalogSeen = useRef(false);
+  const [moreError, setMoreError] = useState('');
   const owned = useLive(async () => new Map((await db().books.toArray()).filter((b) => b.sourceKey).map((b) => [b.sourceKey!, b.id])), [], new Map());
 
   // filters live in the URL, so a search can be shared, reloaded and gone back to
@@ -141,26 +144,48 @@ export default function DiscoverPage() {
       return;
     }
     setState(page === 1 ? 'loading' : 'more');
+    setMoreError('');
     if (page === 1) setWorks([]);
     try {
       const params = toParams(filters, page);
       params.set('per', String(PER));
       if (filters.lang === 'all') params.set('lang', 'all');
-      const res = await fetch(`/api/search/?${params}`);
-      const data = (await res.json()) as SearchResult & { error?: string; unavailable?: boolean };
+      // one quiet retry for a transient failure (a server instance still loading, an upstream hiccup)
+      let res: Response | null = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          res = await fetch(`/api/search/?${params}`);
+          if (res.status < 500) break;
+        } catch (err) {
+          if (attempt === 1) throw err;
+        }
+        if (id !== req.current) return;
+        if (attempt === 0) await new Promise((r) => setTimeout(r, 2000));
+      }
+      if (!res) throw new Error('The catalog is unavailable right now.');
+      const data = (await res.json().catch(() => ({}))) as SearchResult & { error?: string; unavailable?: boolean };
       if (id !== req.current) return;
-      if (res.status === 503 && data.unavailable) {
+      if (res.status === 503 && data.unavailable && !fullCatalogSeen.current) {
+        // no full catalog has reached this page yet: the per-source view is the only one that can work
         setState('legacy');
         return;
       }
-      if (!res.ok) throw new Error(data.error || 'The catalog is unavailable right now.');
+      if (!res.ok) throw new Error(data.unavailable ? 'The catalog is briefly unavailable. Please try again in a moment.' : data.error || 'The catalog is unavailable right now.');
+      fullCatalogSeen.current = true;
       setResult(data);
       setShown(filters);
       setWorks((w) => (page === 1 ? data.works : [...w, ...data.works]));
       setState('ready');
     } catch (err) {
       if (id !== req.current) return;
-      setError(err instanceof Error ? err.message : 'The catalog is unavailable right now.');
+      const message = err instanceof Error ? err.message : 'The catalog is unavailable right now.';
+      if (page > 1) {
+        // keep the books already shown; offer to try the next page again
+        setMoreError(message);
+        setState('ready');
+        return;
+      }
+      setError(message);
       setState(navigator.onLine ? 'error' : 'offline');
     }
   }, []);
@@ -433,6 +458,11 @@ export default function DiscoverPage() {
                 <p className="muted" style={{ fontSize: 13, margin: 0 }}>
                   Showing {nf.format(works.length)} of {nf.format(result.total)}
                 </p>
+                {moreError ? (
+                  <p role="alert" style={{ fontSize: 13, margin: 0 }}>
+                    {moreError}
+                  </p>
+                ) : null}
               </div>
             ) : null}
           </>

@@ -318,9 +318,14 @@ export function parseSearchParams(sp: URLSearchParams): SearchParams {
 
 // ---------------------------------------------------------------------------------------------
 // Loading: each server instance keeps one index and checks the small meta.json for a newer build.
+// GitHub's release downloads occasionally answer 5xx or time out, so every fetch is retried a bounded number of
+// times, and an instance never drops the catalog it already has because a refresh failed.
 
 const BASE = process.env.CATALOG_BASE_URL || 'https://github.com/scottyfncodes/BOOKND/releases/download/catalog-latest';
 const CHECK_EVERY_MS = 10 * 60 * 1000;
+/** After a failed refresh a running instance tries again sooner, still serving the catalog it has. */
+const RETRY_FAILED_CHECK_MS = 60 * 1000;
+const opts = { attempts: 3, backoffMs: [600, 2000], metaTimeoutMs: 8000, catalogTimeoutMs: 40000 };
 
 export class CatalogUnavailable extends Error {}
 
@@ -336,26 +341,68 @@ export interface CatalogMeta {
   run?: { id: string; url: string };
 }
 
-async function get(path: string, timeoutMs: number) {
+class FetchFailed extends Error {
+  constructor(
+    message: string,
+    readonly retryable: boolean,
+  ) {
+    super(message);
+  }
+}
+
+async function getOnce(path: string, timeoutMs: number) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(`${BASE}/${path}`, { cache: 'no-store', signal: ctrl.signal, headers: { 'User-Agent': 'BookNd/1.0' } });
-    if (!res.ok) throw new Error(`${path}: ${res.status}`);
+    // 404 is retried too: a release asset is briefly missing while the nightly build replaces it
+    if (!res.ok) throw new FetchFailed(`${path}: ${res.status}`, res.status >= 500 || res.status === 429 || res.status === 404);
     return Buffer.from(await res.arrayBuffer());
+  } catch (err) {
+    if (err instanceof FetchFailed) throw err;
+    throw new FetchFailed(`${path}: ${err instanceof Error ? err.message : String(err)}`, true); // network error or timeout
   } finally {
     clearTimeout(t);
   }
 }
 
-async function refresh() {
-  const meta = JSON.parse((await get('meta.json', 8000)).toString('utf8')) as CatalogMeta;
-  if (current && current.meta?.generatedAt === meta.generatedAt) return;
-  const raw = await get('catalog.json.gz', 60000);
+/** Fetches a release asset with bounded retries and backoff on transient failures (5xx, 429, 404, timeouts). */
+async function get(path: string, timeoutMs: number) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await getOnce(path, timeoutMs);
+    } catch (err) {
+      const retry = err instanceof FetchFailed && err.retryable && attempt < opts.attempts;
+      if (!retry) throw err;
+      console.warn(`catalog fetch retry ${attempt}/${opts.attempts - 1}:`, (err as Error).message);
+      await new Promise((r) => setTimeout(r, opts.backoffMs[attempt - 1] ?? opts.backoffMs.at(-1)));
+    }
+  }
+}
+
+async function loadCatalog(): Promise<CatalogIndex> {
+  const raw = await get('catalog.json.gz', opts.catalogTimeoutMs);
   const json = raw[0] === 0x1f && raw[1] === 0x8b ? gunzipSync(raw) : raw;
   const snap = JSON.parse(json.toString('utf8')) as Snapshot;
   if (!Array.isArray(snap.works) || !snap.works.length) throw new Error('empty catalog');
-  current = { index: buildIndex(snap), meta };
+  return buildIndex(snap);
+}
+
+async function refresh() {
+  let meta: CatalogMeta | null = null;
+  try {
+    meta = JSON.parse((await get('meta.json', opts.metaTimeoutMs)).toString('utf8')) as CatalogMeta;
+  } catch (err) {
+    // With a catalog in hand, an unreachable meta.json just means "check again later".
+    if (current) throw err;
+    // Without one, meta.json is not required: go straight for the catalog.
+    console.warn('catalog meta unavailable; loading the catalog directly', (err as Error).message);
+  }
+  if (current && meta && current.index.generatedAt === meta.generatedAt) return;
+  const index = await loadCatalog();
+  // never replace a newer catalog with an older one (e.g. a stale CDN copy)
+  if (current && index.generatedAt < current.index.generatedAt) return;
+  current = { index, meta: meta && meta.generatedAt === index.generatedAt ? meta : (current?.meta ?? meta) };
 }
 
 /** The loaded index; loads it on first use and refreshes in the background when a newer build is published. */
@@ -366,7 +413,8 @@ export async function getCatalog(): Promise<{ index: CatalogIndex; meta: Catalog
     inflight = refresh()
       .catch((err) => {
         console.error('catalog refresh failed', err);
-        if (!current) checkedAt = 0; // retry on the next request
+        // keep serving the catalog we have; look again soon. With none, the next request tries again.
+        checkedAt = current ? Date.now() - CHECK_EVERY_MS + RETRY_FAILED_CHECK_MS : 0;
       })
       .finally(() => {
         inflight = null;
@@ -386,8 +434,20 @@ export async function getCatalog(): Promise<{ index: CatalogIndex; meta: Catalog
   return current;
 }
 
-/** Test hook. */
+/** Test hooks. */
 export function _setCatalogForTests(snap: Snapshot | null) {
   current = snap ? { index: buildIndex(snap), meta: { generatedAt: snap.generatedAt } } : null;
   checkedAt = snap ? Date.now() : 0;
+}
+export function _resetLoaderForTests(o: Partial<typeof opts> = {}) {
+  current = null;
+  checkedAt = 0;
+  inflight = null;
+  Object.assign(opts, { attempts: 3, backoffMs: [600, 2000], metaTimeoutMs: 8000, catalogTimeoutMs: 40000 }, o);
+}
+export function _expireCheckForTests() {
+  checkedAt = 0;
+}
+export async function _settleForTests() {
+  while (inflight) await inflight;
 }

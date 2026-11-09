@@ -12,7 +12,7 @@ on:
         default: '900'
       search_budget:
         description: 'Max Open Library title/author lookups this run'
-        default: '1500'
+        default: '4500'
       skip_ratings:
         description: 'Skip ratings (1 to skip)'
         default: '0'
@@ -46,7 +46,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           RATINGS_BUDGET: ${{ github.event_name == 'pull_request' && '2' || inputs.ratings_budget || '900' }}
-          SEARCH_BUDGET: ${{ github.event_name == 'pull_request' && '5' || inputs.search_budget || '1500' }}
+          SEARCH_BUDGET: ${{ github.event_name == 'pull_request' && '5' || inputs.search_budget || '4500' }}
           SKIP_RATINGS: ${{ inputs.skip_ratings || '0' }}
         run: node scripts/catalog/build.mjs --prev prev --out out
       - name: Keep the run's output

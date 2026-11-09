@@ -96,21 +96,42 @@ shows one card per work; the details sheet lists every edition with its own Add 
 
 ### Ratings
 
-Per edition the state records Open Library work key, average, count, match confidence, method and fetch time.
-A work's rating is its best-supported match (highest confidence, then most ratings).
+Open Library is the only provider; only its real averages (1–5) and counts are stored and shown. Per edition the
+state records the Open Library work key, average, count, match confidence, method and when it was checked.
 
-- **gutenberg-id**: Open Library editions carry Project Gutenberg ids. The returned work is accepted only if its
-  main title matches (exact → 0.98 with agreeing author / 0.9 without author data; ≥ 50 % word overlap → 0.9 /
-  0.8) and it is rejected outright if the authors disagree.
-- **title-author** (fallback, 0.75; also tried when the id match found an Open Library work with no ratings, which is
-  often a duplicate work record): exact main title and the same author surname, and only if one work clearly
-  dominates (≥ 3× the editions of the next); generic one-word titles and author-less records are never searched.
-- Works without a match, or matched to a work with zero ratings, are **Unrated** – nothing is estimated.
+**Identity first, activity second.** A candidate work must first pass identity checks; reader activity
+(`ratings_count × 10 + readinglog_count`) only ranks works that already passed, and never admits one that didn't.
+
+- **Authors** agree when any edition author's surname matches any of the work's author names *or alternative
+  names* (Open Library lists other scripts and spellings: "Лев Толстой" also as "Leo Tolstoy"). Transliterations
+  match on the surname's consonant skeleton (Dostoevsky / Dostoyevsky / Dostoievski); surnames shorter than three
+  consonants must match exactly.
+- **gutenberg-id** (Open Library editions carry Project Gutenberg numbers; 100 numbers per request): the work's
+  title must equal the edition's main title (0.98 with agreeing author, 0.9 without author data), or name the
+  same work (one extends the other, or ≥ 50 % word overlap; 0.9 / 0.8). A title with no Latin letters — the
+  original-language title, e.g. "Преступление и наказание" — is accepted only when the author agrees (0.85).
+  An author mismatch is always rejected.
+- **title-author** (0.75): searched with a cleaned main title (no subtitle, translator note, `[…]` or MARC marker)
+  and the author's surname. The work's main title must be the *same* as the edition's (so "Pride and Prejudice
+  and Zombies" never matches "Pride and Prejudice"); volumes ("[3/5]", "Part 2") are different books.
+- **Choosing among duplicates**: the top candidate must have ≥ 3× the activity of the next active one, otherwise
+  nothing is stored (ambiguous). A work with fewer than 5 ratings is refused while other active duplicates exist –
+  this is what used to let a 1-rating duplicate stand in for *The Count of Monte Cristo*. Empty stub works (no
+  ratings, no reading-log entries) never block a match.
+- **A work's rating** is the best-supported *rated* match among its editions (highest confidence, then count);
+  an unrated match never hides a rated one. No match with ratings → **Unrated**; nothing is estimated or blended.
 - **Weighted score** (Top rated sort): `(n·c·R + 25·m) / (n·c + 25)` where R is the average, n the count, c the
   match confidence and m the catalog-wide mean. Few ratings or a weaker match stay near the mean; unrated works sort last.
 
-Refresh: id lookups are repeated every 14 days per edition (oldest first, 900 batches max per run); the search
-fallback retries a book after 60 days; at most 1,500 searches per run.
+Refresh: id lookups repeat every 14 days per edition (oldest first, ≤ 900 batches per run). Each run then searches
+(≤ 4,500 per run, ≤ 1 request/second): existing search matches re-checked under the current rules first, then the
+Standard Ebooks titles that have no Gutenberg edition (no number to look up), then the most-read unrated books; a
+book is searched again after 60 days. `MATCHER_VERSION` in `scripts/catalog/lib.mjs` forces every stored match to be
+re-checked when the rules change; `meta.json` lists each rating that changed (`ratingsChanges`).
+
+Known limits: some canonical Open Library works are titled only in the original language in a Latin script
+(*Le Comte de Monte-Cristo*, *Don Quijote*) and are not linked to the Gutenberg number; without a translation
+source they cannot be identified safely and those books stay Unrated rather than borrowing a duplicate's rating.
 
 ### Operations
 
@@ -121,6 +142,11 @@ fallback retries a book after 60 days; at most 1,500 searches per run.
 - **Safety**: if a source fails, the previous run's data for that source is kept. If the readable Gutenberg count
   drops by more than 10 % the run fails without publishing. `meta.json` is uploaded last, so servers only reload
   after the new catalog is in place.
+- **Catalog loading (server)**: each instance keeps the catalog in memory and checks `meta.json` every 10 minutes.
+  Release downloads are retried (3 attempts, backoff, 8 s / 40 s timeouts; 5xx, 429, 404 and timeouts count as
+  transient). A failed refresh keeps the last good catalog and retries after a minute; a cold instance loads the
+  catalog directly if `meta.json` is unreachable. Discover falls back to the per-source view only if no full-catalog
+  results have reached the page yet; afterwards an outage shows a retryable error instead.
 - **Observability**: the workflow's run summary (counts, requests, rate-limit hits, warnings), the `meta.json`
   artifact kept for 30 days, and `GET /api/catalog/status` on the live site.
 - **Run manually**: Actions → Catalog → Run workflow (inputs: ratings budget, search budget, skip ratings).
