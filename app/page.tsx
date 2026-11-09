@@ -101,6 +101,8 @@ export default function DiscoverPage() {
   const [f, setF] = useState<Filters | null>(null);
   const [input, setInput] = useState('');
   const [result, setResult] = useState<SearchResult | null>(null);
+  // the filters that produced `result`, so the count line never mixes a new query with the previous count
+  const [shown, setShown] = useState<Filters | null>(null);
   const [works, setWorks] = useState<Work[]>([]);
   const [state, setState] = useState<'loading' | 'more' | 'ready' | 'error' | 'offline' | 'legacy'>('loading');
   const [error, setError] = useState('');
@@ -153,6 +155,7 @@ export default function DiscoverPage() {
       }
       if (!res.ok) throw new Error(data.error || 'The catalog is unavailable right now.');
       setResult(data);
+      setShown(filters);
       setWorks((w) => (page === 1 ? data.works : [...w, ...data.works]));
       setState('ready');
     } catch (err) {
@@ -341,7 +344,7 @@ export default function DiscoverPage() {
             {state === 'loading'
               ? 'Searching the whole catalog…'
               : result
-                ? `${nf.format(result.total)} ${result.total === 1 ? 'book' : 'books'}${f?.q ? ` for “${f.q}”` : ''} · ${SORT_LABEL[result.sort].toLowerCase()}${
+                ? `${nf.format(result.total)} ${result.total === 1 ? 'book' : 'books'}${shown?.q ? ` for “${shown.q}”` : ''} · ${SORT_LABEL[result.sort].toLowerCase()}${
                     result.sort === 'rating' ? ' (weighted by number of ratings)' : ''
                   }`
                 : ''}

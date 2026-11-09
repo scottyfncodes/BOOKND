@@ -393,6 +393,8 @@ export function sameWorkTitle(a, b) {
   const kb = mainTitleKey(b);
   if (!ka || !kb) return false;
   // "The Iliad" / "The Iliad of Homer": one title extends the other
+  // "The Powerhouse" / "The Power-House": spacing and hyphenation differ between editions
+  if (ka.replace(/ /g, '') === kb.replace(/ /g, '')) return true;
   return ka === kb || kb.startsWith(`${ka} `) || ka.startsWith(`${kb} `) || titleSimilarity(a, b) >= 0.5;
 }
 
