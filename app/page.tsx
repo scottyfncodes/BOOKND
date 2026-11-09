@@ -110,7 +110,7 @@ export default function DiscoverPage() {
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<Work | null>(null);
   const [adding, setAdding] = useState<string | null>(null);
-  const [status, setStatus] = useState<{ works: number; languages: { code: string; works: number }[] } | null>(null);
+  const [status, setStatus] = useState<{ works: number; languageCount?: number; languages: { code: string; works: number }[] } | null>(null);
   const req = useRef(0);
   // once full-catalog results have been shown, a transient outage must not swap Discover to the per-source view
   const fullCatalogSeen = useRef(false);
@@ -138,7 +138,7 @@ export default function DiscoverPage() {
   useEffect(() => {
     fetch('/api/catalog/status/')
       .then((r) => (r.ok ? r.json() : null))
-      .then((s) => s?.ok && setStatus({ works: s.loaded.works, languages: s.loaded.languages }))
+      .then((s) => s?.ok && setStatus({ works: s.loaded.works, languageCount: s.loaded.languageCount, languages: s.loaded.languages }))
       .catch(() => {});
   }, []);
 
@@ -373,7 +373,7 @@ export default function DiscoverPage() {
             Discover
           </h1>
           <p className="muted" style={{ fontSize: 14, margin: '12px 0 0', maxWidth: 560 }}>
-            {status ? `${nf.format(status.works)} books` : 'Every book'} from Standard Ebooks and Project Gutenberg in one catalog. Standard Ebooks’ carefully typeset editions come first when a book has one.
+            {status ? `${nf.format(status.works)} books${status.languageCount ? ` in ${status.languageCount} languages` : ''}` : 'Every book'} from Standard Ebooks and Project Gutenberg in one catalog. Standard Ebooks’ carefully typeset editions come first when a book has one.
           </p>
         </div>
 
@@ -430,7 +430,7 @@ export default function DiscoverPage() {
               {state === 'loading'
                 ? 'Searching the whole catalog…'
                 : result
-                  ? `${nf.format(result.total)} ${result.total === 1 ? 'book' : 'books'}${shown?.q ? ` for “${shown.q}”` : ''} · ${SORT_LABEL[result.sort].toLowerCase()}${
+                  ? `${nf.format(result.total)} ${result.total === 1 ? 'book' : 'books'}${shown && shown.lang !== 'all' ? ` in ${languageName(shown.lang)}` : ''}${shown?.q ? ` for “${shown.q}”` : ''} · ${SORT_LABEL[result.sort].toLowerCase()}${
                       result.sort === 'rating' ? ' (weighted by number of ratings)' : ''
                     }`
                   : ''}

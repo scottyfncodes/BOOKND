@@ -21,7 +21,7 @@ export async function GET() {
       {
         ok: true,
         generatedAt: index.generatedAt,
-        loaded: { works, editions, standardEbooksWorks: se, ratedWorks: rated, unratedWorks: works - rated, languages: index.languages.slice(0, 40) },
+        loaded: { works, editions, standardEbooksWorks: se, ratedWorks: rated, unratedWorks: works - rated, languages: index.languages.slice(0, 40), languageCount: index.languages.length },
         build: meta,
       },
       { headers: { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=86400' } },
