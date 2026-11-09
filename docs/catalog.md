@@ -114,10 +114,11 @@ state records the Open Library work key, average, count, match confidence, metho
 - **title-author** (0.75): searched with a cleaned main title (no subtitle, translator note, `[…]` or MARC marker)
   and the author's surname. The work's main title must be the *same* as the edition's (so "Pride and Prejudice
   and Zombies" never matches "Pride and Prejudice"); volumes ("[3/5]", "Part 2") are different books.
-- **Choosing among duplicates**: the top candidate must have ≥ 3× the activity of the next active one, otherwise
-  nothing is stored (ambiguous). A work with fewer than 5 ratings is refused while other active duplicates exist –
-  this is what used to let a 1-rating duplicate stand in for *The Count of Monte Cristo*. Empty stub works (no
-  ratings, no reading-log entries) never block a match.
+- **Choosing among duplicate records** (all of which passed the identity checks): records with ≥ 5 ratings come
+  first, then the most reader activity. A record with 1–4 ratings is accepted only when no other active record
+  exists, and never for a *translated* edition found by search – a small English-titled record is how a wrong
+  1-rating *Count of Monte Cristo* got in while the real work is filed as *Le Comte de Monte-Cristo*. Empty stub
+  works (no ratings, no reading-log entries) never block a match.
 - **A work's rating** is the best-supported *rated* match among its editions (highest confidence, then count);
   an unrated match never hides a rated one. No match with ratings → **Unrated**; nothing is estimated or blended.
 - **Weighted score** (Top rated sort): `(n·c·R + 25·m) / (n·c + 25)` where R is the average, n the count, c the

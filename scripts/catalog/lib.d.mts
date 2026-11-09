@@ -42,6 +42,7 @@ export function groupEditions(editions: PipelineEdition[], providerWorkOf?: (e: 
 export function titleSimilarity(a: string, b: string): number;
 export function authorsAgree(keys: string[], names: string[] | undefined): boolean | null;
 export const MATCHER_VERSION: number;
+export const WELL_SUPPORTED: number;
 export function cleanTitle(t: string): string;
 export function searchTitle(t: string): string;
 export function surnamesAgree(a: string, b: string): boolean;

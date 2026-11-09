@@ -435,7 +435,7 @@ export function titleSimilarity(a, b) {
 }
 
 /** Bump when matching rules change: every stored match is re-checked under the new rules. */
-export const MATCHER_VERSION = 2;
+export const MATCHER_VERSION = 3;
 
 /** Surname without vowels and soft letters, so transliterations agree: Dostoevsky / Dostoyevsky / Dostoievski. */
 function surnameSkeleton(s) {
@@ -482,20 +482,23 @@ export function readerActivity(doc) {
   return (doc.ratings_count ?? 0) * 10 + (doc.readinglog_count ?? 0);
 }
 
+/** Ratings below this are thin evidence: fine for a lone record, not enough to pick between duplicate records. */
+export const WELL_SUPPORTED = 5;
+
 /**
- * Picks the work among candidates that ALL passed the identity checks. Activity only ranks them:
- *  - a candidate must clearly dominate (3× the activity of the next active one), otherwise it is ambiguous;
- *  - a work with fewer than 5 ratings is not accepted while other active duplicates exist (small duplicate
- *    records are how a wrong 1-rating "Count of Monte Cristo" got in).
+ * Picks the work among candidates that ALL passed the identity checks (so every one is a record of this work).
+ * Rating counts and reading-log activity only rank them:
+ *  - well-supported records (≥ 5 ratings) come first, then by activity (ratings × 10 + reading-log entries);
+ *  - a record with 1–4 ratings is accepted only when no other active record exists — a small duplicate is how a
+ *    wrong 1-rating "Count of Monte Cristo" got in, while the real work was filed under its French title;
+ *  - a record with no ratings is returned as an unrated match (nothing is shown).
  */
 function choose(cands) {
   if (!cands.length) return { ok: false, reason: 'no-match' };
-  const ranked = [...cands].sort((a, b) => readerActivity(b.doc) - readerActivity(a.doc) || b.confidence - a.confidence);
+  const tier = (d) => ((d.ratings_count ?? 0) >= WELL_SUPPORTED ? 0 : (d.ratings_count ?? 0) > 0 ? 1 : 2);
+  const ranked = [...cands].sort((a, b) => tier(a.doc) - tier(b.doc) || readerActivity(b.doc) - readerActivity(a.doc) || b.confidence - a.confidence);
   const [top, ...rest] = ranked;
-  const active = rest.filter((c) => readerActivity(c.doc) > 0);
-  if (active.length && readerActivity(top.doc) < 3 * readerActivity(active[0].doc)) return { ok: false, reason: 'ambiguous' };
-  const n = top.doc.ratings_count ?? 0;
-  if (n > 0 && n < 5 && active.length) return { ok: false, reason: 'weak-among-duplicates' };
+  if (tier(top.doc) === 1 && rest.some((c) => readerActivity(c.doc) > 0)) return { ok: false, reason: 'weak-among-duplicates' };
   return { ok: true, doc: top.doc, confidence: top.confidence };
 }
 
@@ -548,7 +551,12 @@ export function judgeSearchMatch(edition, docs) {
     .filter((d) => [d.title ?? '', ...(d.alternative_title ?? [])].some(same))
     .filter((d) => authorsAgree(edition.authorKeys, providerAuthorNames(d)) === true)
     .map((doc) => ({ doc, confidence: 0.75 }));
-  return { ...choose(pass), method: 'title-author' };
+  const j = { ...choose(pass), method: 'title-author' };
+  // A translation searched by its English title often finds a small English-titled record while the real work is
+  // filed under the original title (Das Schloss, Le Comte de Monte-Cristo): thin evidence is not enough there.
+  const n = j.doc?.ratings_count ?? 0;
+  if (j.ok && edition.translators?.length && n > 0 && n < WELL_SUPPORTED) return { ok: false, reason: 'translation-weak-match', method: 'title-author' };
+  return j;
 }
 
 /**

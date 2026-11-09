@@ -186,7 +186,8 @@ describe('rating matches (work-level, never guessed)', () => {
       { key: '/works/OL2W', title: 'Pride and Prejudice', author_name: ['Jane Austen'], ratings_count: 28, readinglog_count: 300 },
     ];
     expect(judgeSearchMatch(e, docs)).toMatchObject({ ok: true, confidence: 0.75, doc: { key: '/works/OL1W' } });
-    expect(judgeSearchMatch(e, [docs[0], { ...docs[1], ratings_count: 400, readinglog_count: 8000 }]).reason).toBe('ambiguous');
+    // two well-supported records of the same work: the better-supported one is shown
+    expect(judgeSearchMatch(e, [docs[1], { ...docs[0] }]).doc.key).toBe('/works/OL1W');
     expect(judgeSearchMatch(e, [{ ...docs[0], title: 'Pride and Prejudice and Zombies' }]).reason).toBe('no-match');
     expect(judgeSearchMatch(pg({ title: 'Poems', authorKeys: ['keats j'] }), docs).reason).toBe('title-too-generic');
     expect(judgeSearchMatch(pg({ title: 'Pride and Prejudice' }), docs).reason).toBe('no-author');
@@ -278,6 +279,29 @@ describe('matching against real Open Library data', () => {
     expect(judgeSearchMatch(mc, docs).ok).toBe(false);
     // one clearly dominant small record is still refused while other active duplicates exist
     expect(judgeSearchMatch(mc, [{ ...docs[1], readinglog_count: 400 }, docs[3]]).reason).toBe('weak-among-duplicates');
+  });
+  it('keeps a valid rating when Open Library has two real records of the same work (Peter Pan, Utilitarianism)', () => {
+    const pp = pg({ key: 'gutenberg:16', title: 'Peter Pan: [Peter and Wendy]', authorKeys: ['barrie j'] });
+    const docs = [
+      { key: '/works/OL462007W', title: 'Peter Pan', author_name: ['J. M. Barrie'], ratings_average: 3.63, ratings_count: 49, readinglog_count: 779 },
+      { key: '/works/OL462072W', title: 'Peter Pan', author_name: ['J. M. Barrie'], ratings_average: 3.8, ratings_count: 26, readinglog_count: 196 },
+      { key: '/works/OL23017347W', title: 'Peter Pan', author_name: ['J. M. Barrie', 'Pierre Couronne'], ratings_count: 1, readinglog_count: 7 },
+    ];
+    expect(judgeSearchMatch(pp, docs).doc.key).toBe('/works/OL462007W');
+    const u = pg({ key: 'gutenberg:11224', title: 'Utilitarianism', authorKeys: ['mill j'] });
+    const udocs = [
+      { key: '/works/OL1068228W', title: 'Utilitarianism', author_name: ['John Stuart Mill'], ratings_count: 3, readinglog_count: 36 },
+      { key: '/works/OL1068100W', title: 'Utilitarianism', author_name: ['John Stuart Mill'], ratings_average: 4.2, ratings_count: 5, readinglog_count: 106 },
+    ];
+    expect(judgeSearchMatch(u, udocs).doc.key).toBe('/works/OL1068100W');
+  });
+  it('refuses thin English-title records for translated editions (The Castle)', () => {
+    const castle = pg({ key: 'se:franz-kafka/the-castle', source: 'standard-ebooks', title: 'The Castle', authorKeys: ['kafka f'], translators: ['Willa Muir', 'Edwin Muir'] });
+    const doc = { key: '/works/OL29274029W', title: 'The Castle', author_name: ['Franz Kafka'], ratings_average: 4, ratings_count: 1, readinglog_count: 4 };
+    expect(judgeSearchMatch(castle, [doc]).reason).toBe('translation-weak-match');
+    expect(judgeSearchMatch(castle, [{ ...doc, ratings_count: 40 }]).ok).toBe(true);
+    // an untranslated book with a single, lone record keeps its real (small) rating
+    expect(judgeSearchMatch(pg({ title: 'Arrowsmith', authorKeys: ['lewis s'] }), [{ key: '/works/OL51147W', title: 'Arrowsmith', author_name: ['Sinclair Lewis'], ratings_average: 3, ratings_count: 1, readinglog_count: 40 }]).ok).toBe(true);
   });
   it('treats volumes as different books and cleans titles for searching', () => {
     expect(searchTitle('The Odyssey Rendered into English prose for the use of those who cannot read the original')).toBe('The Odyssey');
