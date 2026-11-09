@@ -136,6 +136,10 @@ export function fold(s: string) {
     .trim();
 }
 const hay = (s: string) => ` ${fold(s)} `;
+/** "The Picture of Dorian Gray" and "picture of dorian gray" are the same title for the exact-title boost. */
+export function withoutArticle(folded: string) {
+  return folded.replace(/^(the|a|an) (?=\S)/, '');
+}
 /** Title sort key: leading article and punctuation ignored; numbers and Latin-script titles first, then other scripts. */
 function sortTitle(t: string) {
   const k = fold(t).replace(/^(the|a|an) /, '');
@@ -175,7 +179,7 @@ export function buildIndex(snap: Snapshot): CatalogIndex {
     author: hay([...w.a, ...(w.tr ?? [])].join(' ')),
     subject: hay([...w.s, ...w.g].join(' ')),
     desc: hay(w.d),
-    titleExact: fold(w.t),
+    titleExact: withoutArticle(fold(w.t)),
     langs: new Set(w.l),
     genres: new Set(w.g),
   }));
@@ -215,8 +219,10 @@ function score(e: Entry, ts: string[], field: Field, whole: string): number {
     s += (inTitle ? 10 : 0) + (inAuthor ? 8 : 0) + (inSubject ? 3 : 0) + (inDesc ? 1 : 0);
   }
   if (field === 'all' || field === 'title') {
-    if (e.titleExact === whole) s += 40;
-    else if (e.title.startsWith(` ${whole}`)) s += 15;
+    // a leading The/A/An is optional on both sides: the novel itself outranks books about it
+    const wanted = withoutArticle(whole);
+    if (wanted && e.titleExact === wanted) s += 40;
+    else if (wanted && ` ${e.titleExact}`.startsWith(` ${wanted}`)) s += 15;
   }
   // well-read works and carefully produced editions first among equally good matches
   return s + Math.log10(e.w.dl + 1) * 2 + (e.w.r ? Math.log10(e.w.r.n + 1) : 0) + e.w.se * 2;

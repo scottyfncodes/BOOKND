@@ -553,7 +553,45 @@ function namesAnotherTranslator(edition, doc) {
   return !others.some((s) => translators.some((t) => surnamesAgree(t, s)));
 }
 
-export function judgeSearchMatch(edition, docs) {
+/**
+ * Languages each (first) author's editions are in, counting only editions that credit no translator — mostly
+ * originals. Gutenberg often omits the translator of an English translation ("A Journey to the Centre of the
+ * Earth" credits none), so this is how such a translation is recognised.
+ */
+export function authorLanguageProfile(editions) {
+  const profile = new Map();
+  for (const e of editions) {
+    const a = e.authorKeys?.[0];
+    if (!a || e.translators?.length) continue;
+    const m = profile.get(a) ?? {};
+    m[e.language] = (m[e.language] ?? 0) + 1;
+    profile.set(a, m);
+  }
+  return profile;
+}
+
+/**
+ * A translation: it credits a translator, or its author's untranslated editions are mostly in another language
+ * (at least 3 of them, and more than in this edition's language) – Jules Verne: 44 French, 33 English.
+ */
+export function isLikelyTranslation(edition, profile) {
+  if (edition.translators?.length) return true;
+  const m = profile?.get(edition.authorKeys?.[0]);
+  if (!m) return false;
+  const [lang, n] = Object.entries(m).sort((a, b) => b[1] - a[1])[0];
+  return lang !== edition.language && n >= 3 && n > (m[edition.language] ?? 0);
+}
+
+/**
+ * A stored title-author match with thin evidence (1–4 ratings) for a translation: the pattern of a small
+ * English-titled record standing in for a work filed under its original title. Id-linked and well-supported
+ * matches are never affected.
+ */
+export function isThinTranslationMatch(r, translated) {
+  return !!translated && r?.m === 'title-author' && r.n > 0 && r.n < WELL_SUPPORTED;
+}
+
+export function judgeSearchMatch(edition, docs, { translated = !!edition.translators?.length } = {}) {
   if (!edition.authorKeys.length) return { ok: false, reason: 'no-author' };
   const want = mainTitleKey(searchTitle(edition.title));
   if (want.split(' ').length < 2 && want.length < 6) return { ok: false, reason: 'title-too-generic' };
@@ -572,7 +610,7 @@ export function judgeSearchMatch(edition, docs) {
   // A translation searched by its English title often finds a small English-titled record while the real work is
   // filed under the original title (Das Schloss, Le Comte de Monte-Cristo): thin evidence is not enough there.
   const n = j.doc?.ratings_count ?? 0;
-  if (j.ok && edition.translators?.length && n > 0 && n < WELL_SUPPORTED) return { ok: false, reason: 'translation-weak-match', method: 'title-author' };
+  if (j.ok && translated && n > 0 && n < WELL_SUPPORTED) return { ok: false, reason: 'translation-weak-match', method: 'title-author' };
   return j;
 }
 
