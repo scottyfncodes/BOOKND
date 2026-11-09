@@ -6,6 +6,7 @@ import { BookCover } from '@/components/BookCover';
 import { Byline } from '@/components/Byline';
 import { IconLibrary, IconSearch, Mark } from '@/components/Icons';
 import { LegacyDiscover } from '@/components/LegacyDiscover';
+import { LoadingBar, preloadCovers } from '@/components/LoadingBar';
 import { Sheet } from '@/components/Sheet';
 import { useToast } from '@/components/Toasts';
 import { GENRES, isGenre, type GenreId } from '@/lib/browse';
@@ -28,6 +29,7 @@ const SORT_LABEL: Record<Sort, string> = {
 };
 const FIELD_LABEL: Record<Field, string> = { all: 'All fields', title: 'Title', author: 'Author', subject: 'Subject', description: 'Description' };
 const PER = 30;
+const COVERS_FIRST = 12; // about the first two screens of covers on a phone, the first rows on desktop
 
 interface Filters {
   q: string;
@@ -113,6 +115,8 @@ export default function DiscoverPage() {
   // once full-catalog results have been shown, a transient outage must not swap Discover to the per-source view
   const fullCatalogSeen = useRef(false);
   const [moreError, setMoreError] = useState('');
+  // cover images for a fresh shelf, fetched before the shelf is shown so no tile appears blank
+  const [covers, setCovers] = useState<{ loaded: number; total: number } | null>(null);
   const owned = useLive(async () => new Map((await db().books.toArray()).filter((b) => b.sourceKey).map((b) => [b.sourceKey!, b.id])), [], new Map());
 
   // filters live in the URL, so a search can be shared, reloaded and gone back to
@@ -145,7 +149,10 @@ export default function DiscoverPage() {
     }
     setState(page === 1 ? 'loading' : 'more');
     setMoreError('');
-    if (page === 1) setWorks([]);
+    if (page === 1) {
+      setWorks([]);
+      setCovers(null);
+    }
     try {
       const params = toParams(filters, page);
       params.set('per', String(PER));
@@ -172,6 +179,16 @@ export default function DiscoverPage() {
       }
       if (!res.ok) throw new Error(data.unavailable ? 'The catalog is briefly unavailable. Please try again in a moment.' : data.error || 'The catalog is unavailable right now.');
       fullCatalogSeen.current = true;
+      if (page === 1) {
+        // hold the shelf back until the first rows of covers are in the browser cache
+        const urls = data.works
+          .slice(0, COVERS_FIRST)
+          .map((w) => w.editions[0]?.cover)
+          .filter((u): u is string => !!u);
+        setCovers({ loaded: 0, total: urls.length });
+        await preloadCovers(urls, (loaded) => id === req.current && setCovers({ loaded, total: urls.length }));
+        if (id !== req.current) return;
+      }
       setResult(data);
       setShown(filters);
       setWorks((w) => (page === 1 ? data.works : [...w, ...data.works]));
@@ -377,13 +394,7 @@ export default function DiscoverPage() {
         </div>
 
         {state === 'loading' ? (
-          <ul className="shelf" aria-busy="true" aria-label="Loading books">
-            {Array.from({ length: 10 }, (_, i) => (
-              <li key={i}>
-                <div className="cover" style={{ boxShadow: 'none', opacity: 0.45 }} />
-              </li>
-            ))}
-          </ul>
+          <LoadingBar covers={covers} />
         ) : state === 'offline' ? (
           <div className="empty" role="status">
             <h2>You’re offline</h2>
@@ -428,7 +439,7 @@ export default function DiscoverPage() {
         ) : (
           <>
             <h2 className="sr-only">Books</h2>
-            <ul className="shelf">
+            <ul className="shelf shelf-in">
               {works.map((w) => {
                 const pref = w.editions[0];
                 return (

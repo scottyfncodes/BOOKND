@@ -515,6 +515,49 @@ select.field {
   flex: 0 0 auto;
 }
 
+/* Shown while a shelf fills: a quiet bar instead of empty cover outlines */
+.loading-books {
+  display: grid;
+  justify-items: center;
+  gap: var(--s3);
+  padding: var(--s8) var(--s4);
+  max-width: 360px;
+  margin: 0 auto;
+  text-align: center;
+}
+.loading-books p {
+  margin: 0;
+  font-size: 14px;
+}
+.loading-bar {
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+.loading-top {
+  position: fixed;
+  inset: env(safe-area-inset-top, 0px) 0 auto;
+  height: 3px;
+  z-index: 50;
+  pointer-events: none;
+}
+.loading-top span,
+.loading-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transform-origin: left;
+  transition: transform 0.35s var(--ease);
+}
+.loading-bar span {
+  border-radius: inherit;
+}
+.shelf-in {
+  animation: fade-in 0.4s var(--ease);
+}
+
 .empty {
   display: grid;
   justify-items: center;
