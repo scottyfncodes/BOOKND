@@ -255,6 +255,7 @@ export default function DiscoverPage() {
           </div>
         ) : (
           <>
+            <h2 className="sr-only">Books</h2>
             <ul className="shelf">
               {books.map((b) => (
                 <li key={b.key} className="book-card">
