@@ -36,6 +36,7 @@ await page.waitForSelector('.book-card', { timeout: 60000 });
 await settle(page);
 const all = await count(page);
 check('Discover shows the whole catalog with a count', all > 1000, `${all} English works`);
+check('the first books start on the first screen', await page.evaluate(() => document.querySelector('.shelf li').getBoundingClientRect().top < innerHeight));
 check('no horizontal scroll on a phone', !(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)));
 await page.screenshot({ path: `${OUT}/d1-discover-phone.png` });
 
@@ -46,24 +47,32 @@ await page.waitForFunction((n) => document.querySelectorAll('.book-card').length
 const keys = await page.$$eval('.book-card .book-open', (els) => els.map((e) => e.getAttribute('aria-label')));
 check('Show more loads the next page with no repeats', new Set(keys).size === keys.length && keys.length > first.length, `${keys.length} cards`);
 
+// on a phone, sort and filters live in the Sort & filter sheet
+await page.click('.filter-open');
+await page.waitForSelector('.sheet');
+await page.screenshot({ path: `${OUT}/d1b-sort-filter-sheet-phone.png` });
+
 // sorting is over the whole catalog
-await apply(page, () => page.selectOption('#cat-sort', 'title'));
+await apply(page, () => page.selectOption('#sheet-sort', 'title'));
 const az = await titles(page);
 check('Title A–Z sorts the full catalog', (await count(page)) === all && az.length > 0, az.slice(0, 3).join(' | '));
-await apply(page, () => page.selectOption('#cat-sort', 'rating'));
+await apply(page, () => page.selectOption('#sheet-sort', 'rating'));
 const firstRating = await page.textContent('.book-card .book-rating');
 check('Top rated starts with a rated book showing its count', /★\s*\d\.\d\s*·\s*[\d,]+/.test(firstRating ?? ''), firstRating ?? '');
 await page.screenshot({ path: `${OUT}/d2-top-rated-phone.png` });
 
 // rating filter
-await apply(page, () => page.click('button.chip:text-matches("^Unrated")'));
+await apply(page, () => page.click('.sheet button.chip:text-matches("^Unrated")'));
 const unrated = await count(page);
 const unratedLabels = await page.$$eval('.book-card .book-rating', (els) => els.map((e) => e.textContent));
 check('Unrated filter lists only unrated books', unratedLabels.length > 0 && unratedLabels.every((t) => /Unrated/.test(t ?? '')), `${unrated}`);
-await apply(page, () => page.click('button.chip:text-matches("^Rated")'));
+await apply(page, () => page.click('.sheet button.chip:text-matches("^Rated")'));
 const rated = await count(page);
 check('Rated + Unrated add up to the total', rated + unrated === all, `${rated} + ${unrated} = ${all}`);
-await apply(page, () => page.click('.chip:has-text("Any rating")'));
+await apply(page, () => page.click('.sheet .chip:has-text("Any rating")'));
+await page.click('.sheet-filter-actions .btn-primary');
+await page.waitForSelector('.sheet', { state: 'detached' });
+check('the Sort & filter button shows how many filters are on', ((await page.textContent('.filter-open .filter-badge')) ?? '').trim() === '1', 'sort: top rated');
 
 // search + dedup + Standard Ebooks preferred
 await page.fill('#cat-search', 'pride and prejudice');
