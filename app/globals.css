@@ -952,6 +952,27 @@ input[type='range'] {
 .reader-viewer iframe {
   color-scheme: normal;
 }
+/* Gesture layer over the page, used where the browser delivers no events into the book (iPhone/WebKit). */
+.reader-gestures {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* Always-available way out: sits in the top margin, above the page and every reading overlay. */
+.reader-exit {
+  position: absolute;
+  z-index: 30;
+  top: env(safe-area-inset-top);
+  left: max(var(--s1), env(safe-area-inset-left));
+  color: var(--r-muted);
+}
+.reader-exit[hidden] {
+  display: none;
+}
 .reader-running,
 .reader-foot {
   position: absolute;
