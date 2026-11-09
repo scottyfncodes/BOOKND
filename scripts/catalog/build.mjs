@@ -22,6 +22,9 @@ import {
   gutenbergEdition,
   isReadableGutenberg,
   MATCHER_VERSION,
+  authorLanguageProfile,
+  isLikelyTranslation,
+  isThinTranslationMatch,
   judgeIdentifierCandidates,
   judgeSearchMatch,
   sameWorkTitle,
@@ -230,11 +233,15 @@ async function standardEbooks() {
 const OL_FIELDS =
   'key,title,alternative_title,author_name,author_alternative_name,ratings_average,ratings_count,readinglog_count,id_project_gutenberg,edition_count';
 
+const MATCH_FIELDS = ['w', 'v', 'n', 'c', 'm', 'at'];
+const withoutMatch = (r) => Object.fromEntries(Object.entries(r ?? {}).filter(([k]) => !MATCH_FIELDS.includes(k)));
+
 /**
  * Per edition the state keeps at most one match: { w, v, n, c, m, at } plus bookkeeping — idAt/mv (last id lookup,
  * matcher version) and sAt/smv (last title/author search). Only real Open Library averages and counts are stored.
+ * `translated` holds the editions that need stronger evidence in title-author searches.
  */
-async function openLibrary(editions) {
+async function openLibrary(editions, translated) {
   const t0 = Date.now();
   const stats = {
     matcherVersion: MATCHER_VERSION,
@@ -264,8 +271,6 @@ async function openLibrary(editions) {
   const changes = [];
   const note = (e, from, to) => changes.length < 200 && changes.push({ key: e.key, title: e.title, from, to });
   const describe = (r) => (r?.w ? `${r.w} ${r.v ?? '-'}/${r.n} ${r.m}` : 'unrated');
-  const MATCH_FIELDS = ['w', 'v', 'n', 'c', 'm', 'at'];
-  const withoutMatch = (r) => Object.fromEntries(Object.entries(r ?? {}).filter(([k]) => !MATCH_FIELDS.includes(k)));
   const match = (doc, j, at) => ({ w: doc.key, v: doc.ratings_average ?? null, n: doc.ratings_count ?? 0, c: j.confidence, m: j.method, at });
   const rated = (r) => !!r?.w && r.n > 0 && r.v != null;
 
@@ -357,7 +362,7 @@ async function openLibrary(editions) {
       stats.searched++;
       if (e.source === 'standard-ebooks') stats.standardEbooksSearched++;
       if (tier === 0) stats.revalidated++;
-      const j = judgeSearchMatch(e, docs);
+      const j = judgeSearchMatch(e, docs, { translated: translated.has(e.key) });
       let next;
       if (j.ok && (j.doc.ratings_count ?? 0) > 0) {
         next = { ...withoutMatch(prev), ...match(j.doc, j, at), sAt: at, smv: MATCHER_VERSION };
@@ -415,8 +420,23 @@ async function main() {
   const seEditions = Object.values(se.repos).map((x) => x.edition);
   const editions = [...seEditions, ...pg.editions];
 
-  const ol = await openLibrary(editions);
+  // translations (credited, or recognised from the author's other editions) need stronger evidence in searches
+  const profile = authorLanguageProfile(editions);
+  const translated = new Set(editions.filter((e) => isLikelyTranslation(e, profile)).map((e) => e.key));
+  const ol = await openLibrary(editions, translated);
   meta.sources.openLibrary = ol.stats;
+  // Apply the same rule to matches stored by earlier runs, from stored data alone (no requests), so it also holds
+  // on runs that skip the ratings step.
+  const cleaned = [];
+  for (const e of editions) {
+    const r = ol.ratings[e.key];
+    if (!isThinTranslationMatch(r, translated.has(e.key))) continue;
+    cleaned.push({ key: e.key, title: e.title, from: `${r.w} ${r.v}/${r.n} ${r.m}`, to: 'unrated (thin match for a translation)' });
+    ol.ratings[e.key] = withoutMatch(r);
+  }
+  meta.sources.openLibrary = { ...meta.sources.openLibrary, likelyTranslations: translated.size, thinTranslationMatchesRemoved: cleaned.length };
+  meta.ratingsChanges = [...(meta.ratingsChanges ?? []), ...cleaned];
+  if (cleaned.length) log(`Removed ${cleaned.length} thin title-author matches for translations:`, cleaned.map((c) => c.title).join('; '));
 
   // Group: Standard Ebooks ↔ Gutenberg sources, same title/author/language, then same Open Library work.
   const solid = (e) => {

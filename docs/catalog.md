@@ -120,7 +120,11 @@ state records the Open Library work key, average, count, match confidence, metho
   including ours, stays acceptable.
 - **Choosing among duplicate records** (all of which passed the identity checks): records with ≥ 5 ratings come
   first, then the most reader activity. A record with 1–4 ratings is accepted only when no other active record
-  exists, and never for a *translated* edition found by search – a small English-titled record is how a wrong
+  exists, and never for a *translated* edition found by search. An edition counts as translated when it credits a
+  translator or – since Gutenberg often omits the translator – when its author's untranslated editions are mostly in
+  another language (≥ 3, and more than in the edition's own language; Jules Verne: 44 French, 33 English). Matches
+  stored by earlier runs are held to the same rule on every build, from stored data alone. Id-linked matches and
+  matches with ≥ 5 ratings are never affected – a small English-titled record is how a wrong
   1-rating *Count of Monte Cristo* got in while the real work is filed as *Le Comte de Monte-Cristo*. Empty stub
   works (no ratings, no reading-log entries) never block a match.
 - **A work's rating** is the best-supported *rated* match among its editions (highest confidence, then count);
@@ -137,6 +141,10 @@ re-checked when the rules change; `meta.json` lists each rating that changed (`r
 Known limits: some canonical Open Library works are titled only in the original language in a Latin script
 (*Le Comte de Monte-Cristo*, *Don Quijote*) and are not linked to the Gutenberg number; without a translation
 source they cannot be identified safely and those books stay Unrated rather than borrowing a duplicate's rating.
+
+**Search ranking.** The exact-title boost ignores an optional leading *The*, *A* or *An* on both sides, so
+"picture of dorian gray" ranks *The Picture of Dorian Gray* above *Oscar Wilde, Art and Morality: A Defence of The
+Picture of Dorian Gray*.
 
 ### Operations
 

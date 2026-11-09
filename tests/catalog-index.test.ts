@@ -108,3 +108,38 @@ describe('text in every script', () => {
     expect(s({ sort: 'title' }).works.map((w) => w.title)).toEqual(['$1,000 a Plate', 'Émile', 'The Odyssey', 'Война и мир', '西海紀遊草']);
   });
 });
+
+describe('exact-title boost ignores an optional leading article', () => {
+  // the commentary has more downloads than the novel, so only the exact-title boost can put the novel first
+  const idx = buildIndex({
+    version: 1,
+    generatedAt: 'x',
+    ratingMean: 3.8,
+    works: [
+      work(1, { t: 'Oscar Wilde, Art and Morality: A Defence of The Picture of Dorian Gray', a: ['Stuart Mason'], dl: 900 }),
+      work(2, { t: 'The Picture of Dorian Gray', a: ['Oscar Wilde'], dl: 400 }),
+      work(3, { t: 'Christmas Carols and Midsummer Songs', a: ['Various'], dl: 900 }),
+      work(4, { t: 'A Christmas Carol', a: ['Charles Dickens'], dl: 300 }),
+      work(5, { t: 'Odyssey of a hero', a: ['Someone'], dl: 900 }),
+      work(6, { t: 'The Odyssey', a: ['Homer'], dl: 300 }),
+      work(7, { t: 'Theory of the Leisure Class', a: ['Thorstein Veblen'], dl: 50 }),
+      work(8, { t: 'An Inquiry into the Nature and Causes of the Wealth of Nations', a: ['Adam Smith'], dl: 50 }),
+    ],
+  });
+  const first = (q: string) => search(idx, { ...base, q, sort: 'relevance' }).works[0].title;
+  it('ranks the original novel ahead of commentary with or without the article', () => {
+    expect(first('picture of dorian gray')).toBe('The Picture of Dorian Gray');
+    expect(first('the picture of dorian gray')).toBe('The Picture of Dorian Gray');
+    expect(first('christmas carol')).toBe('A Christmas Carol');
+    expect(first('a christmas carol')).toBe('A Christmas Carol');
+    expect(first('odyssey')).toBe('The Odyssey');
+  });
+  it('only strips a whole leading article word', () => {
+    expect(first('theory of the leisure class')).toBe('Theory of the Leisure Class');
+    expect(first('inquiry into the nature')).toBe('An Inquiry into the Nature and Causes of the Wealth of Nations');
+  });
+  it('keeps the prefix boost and match counts unchanged', () => {
+    expect(first('christmas carols')).toBe('Christmas Carols and Midsummer Songs');
+    expect(search(idx, { ...base, q: 'picture of dorian gray' }).total).toBe(2);
+  });
+});

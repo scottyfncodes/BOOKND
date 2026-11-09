@@ -12,7 +12,10 @@ import {
   groupEditions,
   gutenbergEdition,
   isReadableGutenberg,
+  authorLanguageProfile,
   cleanTitle,
+  isLikelyTranslation,
+  isThinTranslationMatch,
   judgeIdentifierCandidates,
   judgeIdentifierMatch,
   judgeSearchMatch,
@@ -360,5 +363,48 @@ describe('search matches need the same main title', () => {
     const e = pg({ title: 'Pride and Prejudice', authorKeys: ['austen j'] });
     const zombies = { key: '/works/OL15093171W', title: 'Pride and Prejudice and Zombies', author_name: ['Seth Grahame-Smith', 'Jane Austen'], ratings_count: 16, readinglog_count: 107 };
     expect(judgeSearchMatch(e, [zombies]).ok).toBe(false);
+  });
+});
+
+describe('translations whose Gutenberg record omits the translator', () => {
+  // Real counts from the catalog: Jules Verne has 44 French and 33 English editions crediting no translator.
+  const verne = (lang: string, i: number, tr: string[] = []) => pg({ key: `gutenberg:v${lang}${i}`, language: lang, authorKeys: ['verne j'], translators: tr });
+  const dickens = (lang: string, i: number) => pg({ key: `gutenberg:d${lang}${i}`, language: lang, authorKeys: ['dickens c'] });
+  const editions = [
+    ...Array.from({ length: 44 }, (_, i) => verne('fr', i)),
+    ...Array.from({ length: 33 }, (_, i) => verne('en', i)),
+    ...Array.from({ length: 18 }, (_, i) => verne('en', 100 + i, ['Frederick Amadeus Malleson'])),
+    ...Array.from({ length: 60 }, (_, i) => dickens('en', i)),
+    ...Array.from({ length: 8 }, (_, i) => dickens('nl', i)), // uncredited Dutch translations of Dickens
+    pg({ key: 'gutenberg:x1', language: 'en', authorKeys: ['obscure a'] }),
+    pg({ key: 'gutenberg:x2', language: 'fr', authorKeys: ['obscure a'] }),
+  ];
+  const profile = authorLanguageProfile(editions);
+  const journey = pg({ key: 'gutenberg:18857', title: 'A Journey to the Centre of the Earth', language: 'en', authorKeys: ['verne j'] });
+  const thinRecord = { key: '/works/OL17908357W', title: 'A Journey to the Centre of the Earth', author_name: ['Jules Verne'], ratings_average: 5, ratings_count: 1, readinglog_count: 6 };
+
+  it('recognises an English Verne edition as a translation, but not an English Dickens one', () => {
+    expect(isLikelyTranslation(journey, profile)).toBe(true);
+    expect(isLikelyTranslation(pg({ language: 'en', authorKeys: ['dickens c'] }), profile)).toBe(false);
+    expect(isLikelyTranslation(pg({ language: 'fr', authorKeys: ['verne j'] }), profile)).toBe(false); // the original
+    expect(isLikelyTranslation(pg({ language: 'en', authorKeys: ['obscure a'] }), profile)).toBe(false); // too little evidence
+    expect(isLikelyTranslation(pg({ language: 'en', authorKeys: ['unknown z'] }), profile)).toBe(false);
+  });
+  it('refuses the 1-rating English-title record for it (the false positive)', () => {
+    expect(judgeSearchMatch(journey, [thinRecord], { translated: true }).reason).toBe('translation-weak-match');
+    expect(isThinTranslationMatch({ w: thinRecord.key, v: 5, n: 1, c: 0.75, m: 'title-author' }, true)).toBe(true);
+  });
+  it('keeps well-supported matches, id-linked matches and originals', () => {
+    expect(judgeSearchMatch(journey, [{ ...thinRecord, ratings_count: 120 }], { translated: true }).ok).toBe(true);
+    expect(isThinTranslationMatch({ w: 'x', v: 4, n: 120, c: 0.75, m: 'title-author' }, true)).toBe(false);
+    expect(isThinTranslationMatch({ w: 'x', v: 5, n: 1, c: 0.98, m: 'gutenberg-id' }, true)).toBe(false); // direct identifier
+    expect(isThinTranslationMatch({ w: 'x', v: 5, n: 1, c: 0.75, m: 'title-author' }, false)).toBe(false); // not a translation
+    // a lone small record for an untranslated English book is still accepted
+    const arrowsmith = pg({ title: 'Arrowsmith', language: 'en', authorKeys: ['lewis s'] });
+    expect(judgeSearchMatch(arrowsmith, [{ key: '/works/OL51147W', title: 'Arrowsmith', author_name: ['Sinclair Lewis'], ratings_average: 3, ratings_count: 1, readinglog_count: 40 }], { translated: isLikelyTranslation(arrowsmith, profile) }).ok).toBe(true);
+  });
+  it('applies to Flaubert too (Salammbô: 15 French, 12 English uncredited)', () => {
+    const fl = [...Array.from({ length: 15 }, (_, i) => pg({ key: `f${i}`, language: 'fr', authorKeys: ['flaubert g'] })), ...Array.from({ length: 12 }, (_, i) => pg({ key: `e${i}`, language: 'en', authorKeys: ['flaubert g'] }))];
+    expect(isLikelyTranslation(pg({ title: 'Salammbo', language: 'en', authorKeys: ['flaubert g'] }), authorLanguageProfile(fl))).toBe(true);
   });
 });
