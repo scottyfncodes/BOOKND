@@ -24,7 +24,7 @@ export async function GET() {
         loaded: { works, editions, standardEbooksWorks: se, ratedWorks: rated, unratedWorks: works - rated, languages: index.languages.slice(0, 40) },
         build: meta,
       },
-      { headers: { 'Cache-Control': 'public, s-maxage=300' } },
+      { headers: { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=86400' } },
     );
   } catch (err) {
     const message = err instanceof CatalogUnavailable ? err.message : 'Catalog status unavailable.';
