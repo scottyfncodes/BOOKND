@@ -262,6 +262,104 @@ async function offlineFirstOpen() {
   await browser.close();
 }
 
+/**
+ * iPhone regressions. WebKit delivers no events into the script-less book frame, so the reader detects that
+ * and takes gestures on its own layer; `?gestures=layer` forces that path here in Chromium.
+ */
+async function iphoneRecovery() {
+  const browser = await chromium.launch();
+  const { defaultBrowserType: _d, ...iphone } = devices['iPhone 13'];
+  const ctx = await browser.newContext({ ...iphone });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${BASE}/library/`);
+  await page.setInputFiles('[data-testid=epub-input]', EPUB);
+  await page.waitForSelector('.book-card');
+  await page.click('.book-card .book-open');
+  await page.waitForURL(/\/read\//);
+  const url = `${page.url()}&gestures=layer`;
+  await page.goto(url);
+  await readerReady(page);
+  const { width: vw, height: vh } = page.viewportSize();
+  const sectionClass = () => page.evaluate(() => document.querySelector('.reader-viewer iframe')?.contentDocument?.querySelector('h1')?.textContent ?? 'cover');
+  const scrollPos = () => page.evaluate(() => document.querySelector('.epub-container')?.scrollLeft ?? -1);
+  const foot = () => page.textContent('.reader-foot span');
+
+  check('iPhone: gesture layer takes over when forced', !!(await page.$('[data-testid=reader-gestures]')));
+  check('iPhone: Back to library is visible without opening the controls', await page.isVisible('.reader-exit'));
+  check('iPhone: the cover makes no "last page of chapter" claim', !/Last page/.test((await foot()) ?? ''), (await foot()) ?? '');
+
+  await page.touchscreen.tap(vw - 25, vh / 2);
+  await page.waitForTimeout(700);
+  const first = await sectionClass();
+  check('iPhone: tapping the right edge moves past image front matter', first === 'Chapter One', first);
+
+  const cdp = await ctx.newCDPSession(page);
+  const swipe = async (x0, x1) => {
+    const y = vh / 2;
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x0, y }] });
+    for (let k = 1; k <= 5; k++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x0 + ((x1 - x0) * k) / 5, y }] });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await page.waitForTimeout(600);
+  };
+  const p0 = await scrollPos();
+  await swipe(320, 60);
+  const p1 = await scrollPos();
+  await swipe(60, 320);
+  const p2 = await scrollPos();
+  check('iPhone: swipe left turns forward, swipe right turns back', p1 > p0 && p2 === p0, `${p0} → ${p1} → ${p2}`);
+
+  // Walk to the end of the chapter: the countdown reaches "Last page of chapter" and the next tap enters Chapter Two.
+  let sawLast = false;
+  for (let i = 0; i < 40 && (await sectionClass()) === 'Chapter One'; i++) {
+    if (/Last page of chapter/.test((await foot()) ?? '')) sawLast = true;
+    await page.touchscreen.tap(vw - 25, vh / 2);
+    await page.waitForTimeout(200);
+  }
+  check('iPhone: chapter boundary is labelled and crossed', sawLast && (await sectionClass()) === 'Chapter Two', await sectionClass());
+
+  await page.touchscreen.tap(vw / 2, vh / 2);
+  await page.waitForSelector('.reader-bar.top:not([hidden])');
+  check('iPhone: a centre tap opens the controls', true);
+  await page.touchscreen.tap(vw / 2, vh / 2);
+  await page.waitForTimeout(900);
+  await page.tap('.reader-exit');
+  const left = await page.waitForURL(/\/library\//, { timeout: 10000 }).then(() => true).catch(() => false);
+  check('iPhone: the always-visible Back to library leaves the reader', left);
+
+  // A saved position that doesn't fit the book opens at the start instead of trapping the reader.
+  await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const req = indexedDB.open('booknd');
+        req.onsuccess = () => {
+          const tx = req.result.transaction('books', 'readwrite');
+          const store = tx.objectStore('books');
+          store.getAll().onsuccess = (e) => e.target.result.forEach((b) => store.put({ ...b, location: 'epubcfi(/6/999!/4/2/1:0)' }));
+          tx.oncomplete = resolve;
+        };
+      }),
+  );
+  await page.goto(url);
+  const recovered = await readerReady(page).then(() => true).catch(() => false);
+  check('iPhone: an invalid saved position opens the book from the start', recovered && (await sectionClass()) === 'cover');
+
+  // A renderer that never finishes opening turns into a notice with a way out.
+  await page.addInitScript(() => {
+    Blob.prototype.arrayBuffer = () => new Promise(() => {});
+  });
+  await page.goto(url);
+  const stalled = await page.waitForSelector('.reader-status[role=alert] >> text=taking a long time', { timeout: 30000 }).then(() => true).catch(() => false);
+  check('iPhone: a stalled open offers Try again and Back to library', stalled && (await page.isVisible('.reader-status >> text=Try again')) && (await page.isVisible('.reader-exit')));
+  await page.screenshot({ path: `${OUT}/12-reader-stalled-phone.png` });
+  await page.click('.reader-status >> text=Back to library');
+  check('iPhone: the stalled notice leads back to the library', await page.waitForURL(/\/library\//, { timeout: 10000 }).then(() => true).catch(() => false));
+
+  check('no page errors on iPhone recovery checks', errors.length === 0, errors.slice(0, 3).join(' | '));
+  await browser.close();
+}
+
 async function desktop() {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
@@ -296,6 +394,7 @@ async function desktop() {
 
 await phone();
 await offlineFirstOpen();
+await iphoneRecovery();
 await desktop();
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
