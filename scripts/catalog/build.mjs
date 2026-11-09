@@ -9,7 +9,7 @@
  *   out/state.json.gz    what the next run needs: editions per source, rating matches, fetch times
  *   out/meta.json        counts and run observability (served by /api/catalog/status)
  *
- * Environment: GITHUB_TOKEN (repository listing), RATINGS_BUDGET, SEARCH_BUDGET, SKIP_RATINGS=1, SKIP_SE=1,
+ * Environment: GITHUB_TOKEN (repository listing), RATINGS_BUDGET, SEARCH_BUDGET (default 4500), RATINGS_MINUTES, SKIP_RATINGS=1, SKIP_SE=1,
  * GUTENBERG_RDF=<local .tar.bz2> (tests / local runs).
  */
 import { spawn } from 'node:child_process';
@@ -21,13 +21,17 @@ import {
   groupEditions,
   gutenbergEdition,
   isReadableGutenberg,
-  judgeIdentifierMatch,
+  MATCHER_VERSION,
+  judgeIdentifierCandidates,
   judgeSearchMatch,
+  sameWorkTitle,
+  searchTitle,
   parseGutenbergRdf,
   parseStandardEbooksOpf,
   readTar,
   seSlugFromHomepage,
   toWorkRecord,
+  workRating,
   weightedRating,
 } from './lib.mjs';
 
@@ -39,7 +43,7 @@ const OUT = args.out ?? 'out';
 const UA = 'BookNd-catalog/1.0 (+https://github.com/scottyfncodes/BOOKND; scheduled metadata sync)';
 const RDF_URL = 'https://www.gutenberg.org/cache/epub/feeds/rdf-files.tar.bz2';
 // Bump when parsing changes, so stored editions are rebuilt even if the upstream file has not changed.
-const PARSER_VERSION = 2;
+const PARSER_VERSION = 3; // 3: MARC subfield markers removed from titles
 const DAY = 86400000;
 const started = Date.now();
 const now = new Date().toISOString();
@@ -223,19 +227,47 @@ async function standardEbooks() {
 // ---------------------------------------------------------------------------------------------
 // Ratings (Open Library). Work-level averages; matched by Project Gutenberg id first.
 
-const OL_FIELDS = 'key,title,author_name,ratings_average,ratings_count,id_project_gutenberg,edition_count';
+const OL_FIELDS =
+  'key,title,alternative_title,author_name,author_alternative_name,ratings_average,ratings_count,readinglog_count,id_project_gutenberg,edition_count';
 
+/**
+ * Per edition the state keeps at most one match: { w, v, n, c, m, at } plus bookkeeping — idAt/mv (last id lookup,
+ * matcher version) and sAt/smv (last title/author search). Only real Open Library averages and counts are stored.
+ */
 async function openLibrary(editions) {
   const t0 = Date.now();
-  const stats = { requests: 0, rateLimited: 0, errors: 0, idBatches: 0, matchedById: 0, matchedBySearch: 0, noMatch: 0, rejected: {} };
+  const stats = {
+    matcherVersion: MATCHER_VERSION,
+    requests: 0,
+    rateLimited: 0,
+    errors: 0,
+    idBatches: 0,
+    matchedById: 0,
+    matchedBySearch: 0,
+    noMatch: 0,
+    searched: 0,
+    standardEbooksSearched: 0,
+    standardEbooksMatched: 0,
+    revalidated: 0,
+    revalidationChanged: 0,
+    revalidationDropped: 0,
+    rejected: {},
+  };
   const ratings = { ...(prevState.ratings ?? {}) };
   if (process.env.SKIP_RATINGS === '1') return { ratings, stats: { ...stats, skipped: true } };
   const pace = pacer(1100); // ≤ 1 request a second, as Open Library asks of unauthenticated clients
   const budget = Number(process.env.RATINGS_BUDGET ?? 900);
-  const searchBudget = Number(process.env.SEARCH_BUDGET ?? 1500);
-  const deadline = started + Number(process.env.RATINGS_MINUTES ?? 150) * 60000;
+  const searchBudget = Number(process.env.SEARCH_BUDGET ?? 4500);
+  const deadline = started + Number(process.env.RATINGS_MINUTES ?? 170) * 60000;
   const pg = editions.filter((e) => e.source === 'gutenberg');
   const reject = (why) => (stats.rejected[why] = (stats.rejected[why] ?? 0) + 1);
+  const changes = [];
+  const note = (e, from, to) => changes.length < 200 && changes.push({ key: e.key, title: e.title, from, to });
+  const describe = (r) => (r?.w ? `${r.w} ${r.v ?? '-'}/${r.n} ${r.m}` : 'unrated');
+  const MATCH_FIELDS = ['w', 'v', 'n', 'c', 'm', 'at'];
+  const withoutMatch = (r) => Object.fromEntries(Object.entries(r ?? {}).filter(([k]) => !MATCH_FIELDS.includes(k)));
+  const match = (doc, j, at) => ({ w: doc.key, v: doc.ratings_average ?? null, n: doc.ratings_count ?? 0, c: j.confidence, m: j.method, at });
+  const rated = (r) => !!r?.w && r.n > 0 && r.v != null;
 
   async function olSearch(params) {
     await pace();
@@ -245,12 +277,10 @@ async function openLibrary(editions) {
     return (await res.json()).docs ?? [];
   }
 
-  // 1) by Project Gutenberg id, 100 ids a request; never-checked first, then the stalest
+  // 1) by Project Gutenberg id, 100 ids a request: never checked, checked under older rules, then the stalest
+  const idDue = (r) => !r || r.mv !== MATCHER_VERSION || Date.now() - Date.parse(r.idAt ?? 0) > 14 * DAY;
   const due = pg
-    .filter((e) => {
-      const r = ratings[e.key];
-      return !r || Date.now() - Date.parse(r.idAt ?? 0) > 14 * DAY;
-    })
+    .filter((e) => idDue(ratings[e.key]))
     .sort((a, b) => Date.parse(ratings[a.key]?.idAt ?? 0) - Date.parse(ratings[b.key]?.idAt ?? 0) || b.downloads - a.downloads);
   for (let i = 0; i < due.length && stats.idBatches < budget && Date.now() < deadline; i += 100) {
     const batch = due.slice(i, i + 100);
@@ -268,54 +298,89 @@ async function openLibrary(editions) {
     const at = new Date().toISOString();
     for (const e of batch) {
       const id = String(e.gutenbergIds[0]);
-      const candidates = docs
-        .filter((d) => (d.id_project_gutenberg ?? []).map(String).includes(id))
-        .map((d) => ({ d, j: judgeIdentifierMatch(e, d) }));
-      const good = candidates.filter((c) => c.j.ok).sort((a, b) => b.j.confidence - a.j.confidence || (b.d.ratings_count ?? 0) - (a.d.ratings_count ?? 0));
-      candidates.filter((c) => !c.j.ok).forEach((c) => reject(c.j.reason));
+      const j = judgeIdentifierCandidates(e, docs.filter((d) => (d.id_project_gutenberg ?? []).map(String).includes(id)));
+      j.rejected.forEach(reject);
       const prev = ratings[e.key] ?? {};
-      if (good.length && !(prev.m === 'title-author' && prev.n > 0 && !(good[0].d.ratings_count > 0))) {
-        const { d, j } = good[0];
-        ratings[e.key] = { w: d.key, v: d.ratings_average ?? null, n: d.ratings_count ?? 0, c: j.confidence, m: j.method, at, idAt: at };
+      const base = { ...withoutMatch(prev), idAt: at, mv: MATCHER_VERSION };
+      let next;
+      if (j.ok && ((j.doc.ratings_count ?? 0) > 0 || !(prev.m === 'title-author' && rated(prev)))) {
+        next = { ...base, ...match(j.doc, j, at) };
         stats.matchedById++;
       } else if (prev.m === 'title-author') {
-        ratings[e.key] = { ...prev, idAt: at }; // keep a search match; the id lookup just didn't find one
+        next = { ...prev, idAt: at, mv: MATCHER_VERSION }; // a search match stays until the search re-checks it
       } else {
-        ratings[e.key] = { idAt: at, sAt: prev.sAt };
+        if (!j.ok) reject(j.reason);
+        next = base;
         stats.noMatch++;
       }
+      if (describe(prev) !== describe(next) && rated(prev)) note(e, describe(prev), describe(next));
+      ratings[e.key] = next;
     }
     if (stats.idBatches % 50 === 0) log(`Open Library: ${stats.idBatches} id batches, ${stats.matchedById} matched`);
   }
 
-  // 2) title + author search for the most-read books the id lookup couldn't place (strict, unambiguous only)
-  const searchDue = pg
+  // 2) title + author search. Order: re-check existing search matches under the current rules, then Standard
+  //    Ebooks titles with no Gutenberg edition (no id to look up), then the most-read unrated books.
+  const pgByKey = new Map(pg.map((e) => [e.key, e]));
+  const seSolo = new Set(
+    editions
+      .filter((e) => e.source === 'standard-ebooks')
+      .filter((e) => !e.gutenbergIds.some((id) => {
+        const p = pgByKey.get(`gutenberg:${id}`);
+        return p && p.language === e.language && sameWorkTitle(e.title, p.title);
+      }))
+      .map((e) => e.key),
+  );
+  stats.standardEbooksOnly = seSolo.size;
+  const searchDue = editions
     .filter((e) => {
       const r = ratings[e.key];
-      // unmatched, or matched by id to an Open Library work that has no ratings (often a duplicate work record)
-      return r && (!r.w || !r.n) && r.idAt && Date.now() - Date.parse(r.sAt ?? 0) > 60 * DAY && e.authorKeys.length;
+      if (!e.authorKeys.length) return false;
+      if (e.source === 'standard-ebooks' ? !seSolo.has(e.key) : !r?.idAt) return false; // Gutenberg: id lookup first
+      if (r?.m === 'gutenberg-id' && rated(r)) return false;
+      return r?.smv !== MATCHER_VERSION || Date.now() - Date.parse(r.sAt ?? 0) > 60 * DAY;
     })
-    .sort((a, b) => b.downloads - a.downloads)
+    .map((e) => {
+      const r = ratings[e.key];
+      const tier = r?.m === 'title-author' && rated(r) ? 0 : seSolo.has(e.key) ? 1 : 2;
+      return { e, tier };
+    })
+    .sort((a, b) => a.tier - b.tier || b.e.downloads - a.e.downloads)
     .slice(0, searchBudget);
-  for (const e of searchDue) {
+  for (const { e, tier } of searchDue) {
     if (Date.now() >= deadline || stats.errors > 40) break;
     const at = new Date().toISOString();
+    const prev = ratings[e.key] ?? {};
     try {
-      const docs = await olSearch(new URLSearchParams({ title: e.title.split(/[:;]/)[0], author: e.authors[0] ?? '', fields: OL_FIELDS, limit: '10' }));
+      const surname = e.authorKeys[0].split(' ')[0];
+      const docs = await olSearch(new URLSearchParams({ title: searchTitle(e.title), author: surname, fields: OL_FIELDS, limit: '20' }));
+      stats.searched++;
+      if (e.source === 'standard-ebooks') stats.standardEbooksSearched++;
+      if (tier === 0) stats.revalidated++;
       const j = judgeSearchMatch(e, docs);
+      let next;
       if (j.ok && (j.doc.ratings_count ?? 0) > 0) {
-        ratings[e.key] = { ...ratings[e.key], w: j.doc.key, v: j.doc.ratings_average ?? null, n: j.doc.ratings_count ?? 0, c: j.confidence, m: j.method, at, sAt: at };
+        next = { ...withoutMatch(prev), ...match(j.doc, j, at), sAt: at, smv: MATCHER_VERSION };
         stats.matchedBySearch++;
+        if (e.source === 'standard-ebooks') stats.standardEbooksMatched++;
       } else {
-        ratings[e.key] = { ...ratings[e.key], sAt: at };
         reject(j.ok ? 'match-has-no-ratings' : j.reason);
+        // an earlier search match that no longer passes is removed; an id match (even unrated) is kept
+        next = prev.m === 'title-author' ? { ...withoutMatch(prev), sAt: at, smv: MATCHER_VERSION } : { ...prev, sAt: at, smv: MATCHER_VERSION };
       }
+      if (tier === 0 && describe(prev) !== describe(next)) {
+        stats.revalidationChanged++;
+        if (!rated(next)) stats.revalidationDropped++;
+        note(e, describe(prev), describe(next));
+      }
+      ratings[e.key] = next;
     } catch (err) {
-      stats.errors++;
+      stats.errors++; // keep whatever was there
       meta.warnings.push(`Open Library search: ${err.message}`);
     }
   }
   stats.durationMs = Date.now() - t0;
+  meta.ratingsChanges = changes;
   log('Open Library:', JSON.stringify(stats));
   return { ratings, stats };
 }
@@ -360,17 +425,11 @@ async function main() {
   };
   const groups = groupEditions(editions, solid);
 
-  // A work's rating: its best-supported match (highest confidence, then most ratings). Never invented.
+  // A work's rating: among its editions' matches that carry real ratings, the best-supported one (highest
+  // confidence, then most ratings). An unrated match never hides a rated one. Nothing is invented.
   const rated = [];
   const works = groups.map((g) => {
-    const best = g
-      .map((e) => ({ e, r: ol.ratings[e.key] }))
-      .filter((x) => x.r?.w)
-      .sort((a, b) => b.r.c - a.r.c || (b.r.n ?? 0) - (a.r.n ?? 0))[0];
-    const rating =
-      best && best.r.n > 0 && best.r.v != null
-        ? { v: Math.round(best.r.v * 100) / 100, n: best.r.n, src: 'openlibrary', w: best.r.w, c: best.r.c, m: best.r.m, at: best.r.at, via: best.e.key }
-        : undefined;
+    const rating = workRating(g, ol.ratings);
     const rec = toWorkRecord(g, rating);
     if (rating) rated.push(rec);
     return rec;

@@ -28,6 +28,15 @@ export function clean(s) {
   return decodeEntities(s ?? '').replace(/\s+/g, ' ').trim();
 }
 
+/** Removes MARC subfield markers that leak into catalog titles ("The silent Baltic : $b or, Detained…"). */
+export function cleanTitle(t) {
+  return (t ?? '')
+    .replace(/\s*:\s*\$[a-z]\s*/g, ': ')
+    .replace(/\s*\$[a-z]\s+/g, ' ')
+    .replace(/\s+:/g, ':')
+    .trim();
+}
+
 export function stripHtml(s) {
   return clean(decodeEntities(s ?? '').replace(/<[^>]+>/g, ' '));
 }
@@ -195,7 +204,7 @@ export function parseGutenbergRdf(xml) {
   const issued = clean(inner(body, 'dcterms:issued'));
   return {
     id,
-    title: clean(inner(body, 'dcterms:title')).replace(/\s*\r?\n\s*/g, ': '),
+    title: cleanTitle(clean(inner(body, 'dcterms:title')).replace(/\s*\r?\n\s*/g, ': ')),
     authors: role('dcterms:creator').map(displayName),
     authorKeys: role('dcterms:creator').map(authorKey).filter(Boolean),
     translators: role('marcrel:trl').map(displayName),
@@ -395,8 +404,15 @@ export function sameWorkTitle(a, b) {
   // "The Iliad" / "The Iliad of Homer": one title extends the other
   // "The Powerhouse" / "The Power-House": spacing and hyphenation differ between editions
   if (ka.replace(/ /g, '') === kb.replace(/ /g, '')) return true;
-  return ka === kb || kb.startsWith(`${ka} `) || ka.startsWith(`${kb} `) || titleSimilarity(a, b) >= 0.5;
+  if (ka === kb) return true;
+  const [short, long] = ka.length <= kb.length ? [ka, kb] : [kb, ka];
+  if (long.startsWith(`${short} `)) {
+    // "The Count of Monte-Cristo [3/5]", "Don Quixote, Part 2": one volume of the work, not the work
+    return !VOLUME_ONLY.test(long.slice(short.length + 1));
+  }
+  return titleSimilarity(a, b) >= 0.5;
 }
+const VOLUME_ONLY = /^((vol|volume|part|book|tome|tomo|band|no|number)\s*)?(\d+|[ivxlc]+)(\s+(of\s+)?(\d+|[ivxlc]+))*$/;
 
 // ---------------------------------------------------------------------------------------------
 // Ratings: Open Library work matching
@@ -418,39 +434,161 @@ export function titleSimilarity(a, b) {
   return both / (ta.size + tb.size - both || 1);
 }
 
+/** Bump when matching rules change: every stored match is re-checked under the new rules. */
+export const MATCHER_VERSION = 5;
+
+/** Surname without vowels and soft letters, so transliterations agree: Dostoevsky / Dostoyevsky / Dostoievski. */
+function surnameSkeleton(s) {
+  return s.replace(/[aeiouyjhw]/g, '');
+}
+export function surnamesAgree(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a[0] !== b[0]) return false;
+  const sa = surnameSkeleton(a);
+  return sa.length >= 3 && sa === surnameSkeleton(b);
+}
+
+/** Every name Open Library gives the work's authors: display names plus alternative names (other scripts, spellings). */
+export function providerAuthorNames(doc) {
+  return [...(doc?.author_name ?? []), ...(doc?.author_alternative_name ?? [])];
+}
+
+/** true / false, or null when either side has no author to compare. */
 export function authorsAgree(editionKeys, providerNames) {
-  if (!editionKeys.length || !providerNames?.length) return null; // unknown
-  const surnames = new Set(editionKeys.map((k) => k.split(' ')[0]));
-  return providerNames.some((n) => surnames.has(authorKey(n).split(' ')[0]));
+  if (!editionKeys.length || !providerNames?.length) return null;
+  const want = editionKeys.map((k) => k.split(' ')[0]).filter(Boolean);
+  const have = providerNames.map((n) => authorKey(n).split(' ')[0]).filter(Boolean);
+  if (!have.length) return null; // only names in scripts we can't compare
+  return want.some((w) => have.some((h) => surnamesAgree(w, h)));
+}
+
+function hasLatin(s) {
+  return /[a-z]/i.test((s ?? '').normalize('NFKD'));
+}
+
+/** Title used to query Open Library: main title only, without translator notes, brackets or MARC markers. */
+export function searchTitle(title) {
+  return cleanTitle(title)
+    .split(/\s*[:;]\s*|\s+—\s+|\s+--\s+/)[0]
+    .replace(/\s*\[[^\]]*\]\s*/g, ' ')
+    .replace(/\s+(rendered|translated|done|englished)\s+(into|from|by)\b.*$/i, '')
+    .replace(/,\s*$/, '')
+    .trim();
+}
+
+/** Reader activity: supporting evidence for choosing between already-identified duplicates, never proof of identity. */
+export function readerActivity(doc) {
+  return (doc.ratings_count ?? 0) * 10 + (doc.readinglog_count ?? 0);
+}
+
+/** Ratings below this are thin evidence: fine for a lone record, not enough to pick between duplicate records. */
+export const WELL_SUPPORTED = 5;
+
+/**
+ * Picks the work among candidates that ALL passed the identity checks (so every one is a record of this work).
+ * Rating counts and reading-log activity only rank them:
+ *  - well-supported records (≥ 5 ratings) come first, then by activity (ratings × 10 + reading-log entries);
+ *  - a record with 1–4 ratings is accepted only when no other active record exists — a small duplicate is how a
+ *    wrong 1-rating "Count of Monte Cristo" got in, while the real work was filed under its French title;
+ *  - a record with no ratings is returned as an unrated match (nothing is shown).
+ */
+function choose(cands) {
+  if (!cands.length) return { ok: false, reason: 'no-match' };
+  const tier = (d) => ((d.ratings_count ?? 0) >= WELL_SUPPORTED ? 0 : (d.ratings_count ?? 0) > 0 ? 1 : 2);
+  const ranked = [...cands].sort((a, b) => tier(a.doc) - tier(b.doc) || readerActivity(b.doc) - readerActivity(a.doc) || b.confidence - a.confidence);
+  const [top, ...rest] = ranked;
+  if (tier(top.doc) === 1 && rest.some((c) => readerActivity(c.doc) > 0)) return { ok: false, reason: 'weak-among-duplicates' };
+  return { ok: true, doc: top.doc, confidence: top.confidence };
 }
 
 /**
- * Decides whether an Open Library work found by Project Gutenberg id really is this edition's work.
- * The identifier comes from Open Library's edition records, which are crowd-edited, so the title
- * and author are checked too: a mismatch is rejected rather than shown.
+ * Open Library works that list this Project Gutenberg number. The number is strong evidence but comes from
+ * crowd-edited records, so each work must also agree on author (any of its names) and on title — except that a
+ * title in another script (the original-language title, e.g. "Преступление и наказание") is accepted when the
+ * author agrees, at lower confidence.
  */
+export function judgeIdentifierCandidates(edition, docs) {
+  const rejected = [];
+  const pass = [];
+  for (const doc of docs) {
+    const authors = authorsAgree(edition.authorKeys, providerAuthorNames(doc));
+    if (authors === false) {
+      rejected.push('author-mismatch');
+      continue;
+    }
+    const titles = [doc.title ?? '', ...(doc.alternative_title ?? [])];
+    const exact = titles.some((t) => mainTitleKey(t) && mainTitleKey(t) === mainTitleKey(edition.title));
+    if (exact) pass.push({ doc, confidence: authors ? 0.98 : 0.9 });
+    else if (titles.some((t) => sameWorkTitle(edition.title, t))) pass.push({ doc, confidence: authors ? 0.9 : 0.8 });
+    else if (authors === true && !hasLatin(doc.title)) pass.push({ doc, confidence: 0.85 });
+    else rejected.push('title-mismatch');
+  }
+  return { ...choose(pass), method: 'gutenberg-id', rejected };
+}
+
+/** Kept for single-document checks (tests, diagnostics). */
 export function judgeIdentifierMatch(edition, doc) {
-  const sim = titleSimilarity(edition.title, doc.title ?? '');
-  const authors = authorsAgree(edition.authorKeys, doc.author_name);
-  if (authors === false) return { ok: false, reason: 'author-mismatch' };
-  if (sim >= 0.999) return { ok: true, confidence: authors ? 0.98 : 0.9, method: 'gutenberg-id' };
-  if (sim >= 0.5) return { ok: true, confidence: authors ? 0.9 : 0.8, method: 'gutenberg-id' };
-  return { ok: false, reason: 'title-mismatch' };
+  const j = judgeIdentifierCandidates(edition, [doc]);
+  return j.ok ? { ok: true, confidence: j.confidence, method: j.method } : { ok: false, reason: j.rejected[0] ?? j.reason };
 }
 
 /**
- * Title-and-author search fallback: only an exact main-title match by the same author counts, and
- * only when one work clearly dominates (otherwise the match is ambiguous and nothing is stored).
+ * Title-and-author search fallback: the work's main title (or an alternative title) must equal the edition's and
+ * one of its authors must agree (any of their names); among the works that pass, one must clearly dominate (see choose()).
  */
+/**
+ * Open Library files some translations as works of their own, listing the translator among the authors
+ * ("The Odyssey" by Homer and Emily R. Wilson). For a translated edition, a work that names other people and not
+ * this edition's own translator describes another translation. (The main work record often lists many
+ * translators, including ours – Ovid's "Ars Amatoria" lists Henry T. Riley – and stays acceptable.)
+ */
+function namesAnotherTranslator(edition, doc) {
+  if (!edition.translators?.length) return false;
+  const authors = edition.authorKeys.map((k) => k.split(' ')[0]).filter(Boolean);
+  const translators = edition.translators.map((t) => authorKey(t).split(' ')[0]).filter(Boolean);
+  const names = (doc.author_name ?? []).map((n) => authorKey(n).split(' ')[0]).filter(Boolean);
+  const others = names.filter((s) => !authors.some((a) => surnamesAgree(a, s)));
+  if (!others.length) return false;
+  return !others.some((s) => translators.some((t) => surnamesAgree(t, s)));
+}
+
 export function judgeSearchMatch(edition, docs) {
   if (!edition.authorKeys.length) return { ok: false, reason: 'no-author' };
-  const want = mainTitleKey(edition.title);
+  const want = mainTitleKey(searchTitle(edition.title));
   if (want.split(' ').length < 2 && want.length < 6) return { ok: false, reason: 'title-too-generic' };
-  const hits = docs.filter((d) => mainTitleKey(d.title ?? '') === want && authorsAgree(edition.authorKeys, d.author_name) === true);
-  if (!hits.length) return { ok: false, reason: 'no-match' };
-  hits.sort((a, b) => (b.edition_count ?? 0) - (a.edition_count ?? 0));
-  if (hits.length > 1 && (hits[0].edition_count ?? 0) < 3 * (hits[1].edition_count ?? 0)) return { ok: false, reason: 'ambiguous' };
-  return { ok: true, doc: hits[0], confidence: 0.75, method: 'title-author' };
+  // a search is weaker evidence than an id link: the main title must be the same (spacing aside), so
+  // "Pride and Prejudice and Zombies" is not "Pride and Prejudice"
+  const same = (t) => {
+    const k = mainTitleKey(searchTitle(t));
+    return !!k && (k === want || k.replace(/ /g, '') === want.replace(/ /g, ''));
+  };
+  const pass = docs
+    .filter((d) => [d.title ?? '', ...(d.alternative_title ?? [])].some(same))
+    .filter((d) => authorsAgree(edition.authorKeys, providerAuthorNames(d)) === true)
+    .filter((d) => !namesAnotherTranslator(edition, d))
+    .map((doc) => ({ doc, confidence: 0.75 }));
+  const j = { ...choose(pass), method: 'title-author' };
+  // A translation searched by its English title often finds a small English-titled record while the real work is
+  // filed under the original title (Das Schloss, Le Comte de Monte-Cristo): thin evidence is not enough there.
+  const n = j.doc?.ratings_count ?? 0;
+  if (j.ok && edition.translators?.length && n > 0 && n < WELL_SUPPORTED) return { ok: false, reason: 'translation-weak-match', method: 'title-author' };
+  return j;
+}
+
+/**
+ * A work's rating from its editions' stored matches: only matches with real Open Library ratings count, and the
+ * best-supported one wins (highest confidence, then most ratings). An unrated match never hides a rated one, and
+ * a work with no rated match has no rating.
+ */
+export function workRating(group, ratings) {
+  const best = group
+    .map((e) => ({ e, r: ratings[e.key] }))
+    .filter((x) => x.r?.w && x.r.n > 0 && x.r.v != null)
+    .sort((a, b) => b.r.c - a.r.c || b.r.n - a.r.n)[0];
+  if (!best) return undefined;
+  const { r, e } = best;
+  return { v: Math.round(r.v * 100) / 100, n: r.n, src: 'openlibrary', w: r.w, c: r.c, m: r.m, at: r.at, via: e.key };
 }
 
 /**
