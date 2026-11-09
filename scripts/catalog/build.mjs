@@ -38,6 +38,8 @@ const PREV = args.prev ?? 'prev';
 const OUT = args.out ?? 'out';
 const UA = 'BookNd-catalog/1.0 (+https://github.com/scottyfncodes/BOOKND; scheduled metadata sync)';
 const RDF_URL = 'https://www.gutenberg.org/cache/epub/feeds/rdf-files.tar.bz2';
+// Bump when parsing changes, so stored editions are rebuilt even if the upstream file has not changed.
+const PARSER_VERSION = 2;
 const DAY = 86400000;
 const started = Date.now();
 const now = new Date().toISOString();
@@ -124,9 +126,9 @@ async function gutenberg() {
     const head = await fetchRetry(RDF_URL, { method: 'HEAD' }).catch(() => null);
     const lastModified = head?.headers.get('last-modified') ?? null;
     stats.lastModified = lastModified;
-    if (prev?.editions?.length && lastModified && prev.lastModified === lastModified) {
+    if (prev?.editions?.length && lastModified && prev.lastModified === lastModified && prev.parser === PARSER_VERSION) {
       log(`Gutenberg: catalog unchanged since ${lastModified}; reusing ${prev.editions.length} editions`);
-      return { editions: prev.editions, stats: { ...prevMetaSource('gutenberg'), lastModified, reused: true } };
+      return { editions: prev.editions, stats: { ...prevMetaSource('gutenberg'), lastModified, reused: true }, lastModified, parser: prev.parser };
     }
     const res = await fetchRetry(RDF_URL, {}, { timeoutMs: 15 * 60000 });
     if (!res.ok || !res.body) throw new Error(`Gutenberg catalog download returned ${res.status}`);
@@ -191,7 +193,7 @@ async function standardEbooks() {
     while (i < released.length) {
       const { r, slug } = released[i++];
       const old = prev[r.name];
-      if (old && old.pushedAt === r.pushed_at && old.edition) {
+      if (old && old.pushedAt === r.pushed_at && old.edition && old.parser === PARSER_VERSION) {
         out[r.name] = old;
         stats.reused++;
         continue;
@@ -202,7 +204,7 @@ async function standardEbooks() {
         if (!res.ok) throw new Error(String(res.status));
         const edition = parseStandardEbooksOpf(await res.text(), slug);
         if (!edition.title) throw new Error('no title');
-        out[r.name] = { pushedAt: r.pushed_at, edition };
+        out[r.name] = { pushedAt: r.pushed_at, parser: PARSER_VERSION, edition };
         stats.fetched++;
       } catch (err) {
         stats.failed++;
@@ -230,7 +232,7 @@ async function openLibrary(editions) {
   if (process.env.SKIP_RATINGS === '1') return { ratings, stats: { ...stats, skipped: true } };
   const pace = pacer(1100); // ≤ 1 request a second, as Open Library asks of unauthenticated clients
   const budget = Number(process.env.RATINGS_BUDGET ?? 900);
-  const searchBudget = Number(process.env.SEARCH_BUDGET ?? 500);
+  const searchBudget = Number(process.env.SEARCH_BUDGET ?? 1500);
   const deadline = started + Number(process.env.RATINGS_MINUTES ?? 150) * 60000;
   const pg = editions.filter((e) => e.source === 'gutenberg');
   const reject = (why) => (stats.rejected[why] = (stats.rejected[why] ?? 0) + 1);
@@ -272,7 +274,7 @@ async function openLibrary(editions) {
       const good = candidates.filter((c) => c.j.ok).sort((a, b) => b.j.confidence - a.j.confidence || (b.d.ratings_count ?? 0) - (a.d.ratings_count ?? 0));
       candidates.filter((c) => !c.j.ok).forEach((c) => reject(c.j.reason));
       const prev = ratings[e.key] ?? {};
-      if (good.length) {
+      if (good.length && !(prev.m === 'title-author' && prev.n > 0 && !(good[0].d.ratings_count > 0))) {
         const { d, j } = good[0];
         ratings[e.key] = { w: d.key, v: d.ratings_average ?? null, n: d.ratings_count ?? 0, c: j.confidence, m: j.method, at, idAt: at };
         stats.matchedById++;
@@ -290,7 +292,8 @@ async function openLibrary(editions) {
   const searchDue = pg
     .filter((e) => {
       const r = ratings[e.key];
-      return r && !r.w && r.idAt && Date.now() - Date.parse(r.sAt ?? 0) > 60 * DAY && e.authorKeys.length;
+      // unmatched, or matched by id to an Open Library work that has no ratings (often a duplicate work record)
+      return r && (!r.w || !r.n) && r.idAt && Date.now() - Date.parse(r.sAt ?? 0) > 60 * DAY && e.authorKeys.length;
     })
     .sort((a, b) => b.downloads - a.downloads)
     .slice(0, searchBudget);
@@ -300,7 +303,7 @@ async function openLibrary(editions) {
     try {
       const docs = await olSearch(new URLSearchParams({ title: e.title.split(/[:;]/)[0], author: e.authors[0] ?? '', fields: OL_FIELDS, limit: '10' }));
       const j = judgeSearchMatch(e, docs);
-      if (j.ok) {
+      if (j.ok && (j.doc.ratings_count ?? 0) > 0) {
         ratings[e.key] = { ...ratings[e.key], w: j.doc.key, v: j.doc.ratings_average ?? null, n: j.doc.ratings_count ?? 0, c: j.confidence, m: j.method, at, sAt: at };
         stats.matchedBySearch++;
       } else {
@@ -327,7 +330,7 @@ async function main() {
   } catch (err) {
     if (!prevState.gutenberg?.editions?.length) throw err;
     meta.warnings.push(`Project Gutenberg unavailable (${err.message}); kept the previous catalog`);
-    pg = { editions: prevState.gutenberg.editions, stats: { ...prevMetaSource('gutenberg'), reused: true, error: err.message }, lastModified: prevState.gutenberg.lastModified };
+    pg = { editions: prevState.gutenberg.editions, stats: { ...prevMetaSource('gutenberg'), reused: true, error: err.message }, lastModified: prevState.gutenberg.lastModified, parser: prevState.gutenberg.parser };
   }
   meta.sources.gutenberg = pg.stats;
   const prevReadable = prevState.gutenberg?.editions?.length ?? 0;
@@ -396,7 +399,7 @@ async function main() {
     gzipSync(
       JSON.stringify({
         version: SNAPSHOT_VERSION,
-        gutenberg: { lastModified: pg.lastModified ?? pg.stats.lastModified ?? null, editions: pg.editions },
+        gutenberg: { lastModified: pg.lastModified ?? pg.stats.lastModified ?? null, parser: pg.parser ?? PARSER_VERSION, editions: pg.editions },
         standardEbooks: { repos: se.repos },
         ratings: ol.ratings,
       }),

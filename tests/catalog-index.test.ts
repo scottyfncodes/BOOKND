@@ -89,3 +89,22 @@ describe('full-catalog search', () => {
     expect(parseSearchParams(new URLSearchParams('')).language).toBe('en');
   });
 });
+
+describe('text in every script', () => {
+  const idx = buildIndex({
+    version: 1,
+    generatedAt: 'x',
+    ratingMean: 3.8,
+    works: [work(1, { t: '西海紀遊草' }), work(2, { t: 'Война и мир', a: ['Лев Толстой'] }), work(3, { t: 'The Odyssey' }), work(4, { t: '$1,000 a Plate' }), work(5, { t: 'Émile' })],
+  });
+  const s = (p: Partial<SearchParams>) => search(idx, { ...base, ...p });
+  it('finds non-Latin titles and authors', () => {
+    expect(s({ q: 'война' }).total).toBe(1);
+    expect(s({ q: 'толстой', field: 'author' }).total).toBe(1);
+    expect(s({ q: '西海紀遊草' }).total).toBe(1);
+    expect(s({ q: 'emile' }).total).toBe(1);
+  });
+  it('sorts numbers and Latin titles first (punctuation and articles ignored), then other scripts', () => {
+    expect(s({ sort: 'title' }).works.map((w) => w.title)).toEqual(['$1,000 a Plate', 'Émile', 'The Odyssey', 'Война и мир', '西海紀遊草']);
+  });
+});

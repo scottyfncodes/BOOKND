@@ -83,12 +83,13 @@ Vercel: lib/catalog-index.ts loads catalog.json.gz into memory (checks meta.json
 
 Editions are joined with a union-find:
 
-1. a Standard Ebooks edition joins the Gutenberg transcription(s) its `content.opf` cites as `dc:source`;
+1. a Standard Ebooks edition joins the Gutenberg transcription(s) its `content.opf` cites as `dc:source` – only when
+   the titles match, because collections (Plato's *Dialogues*, *Short Fiction*) cite many separate books;
 2. editions with the same normalised title (case, accents, punctuation, a leading article and an "…; or, …"
    alternative title ignored; volume numbers kept), the same first author and the same language are one work;
    anonymous works with short generic titles ("Poems", "Letters") are never grouped by title;
 3. editions that Open Library files under the same work by Project Gutenberg id (confidence ≥ 0.9, same
-   language) are one work.
+   language, matching titles – Open Library sometimes lumps separate texts into one work) are one work.
 
 The preferred edition is Standard Ebooks when there is one, then the most-downloaded transcription. Discover
 shows one card per work; the details sheet lists every edition with its own Add button.
@@ -101,14 +102,15 @@ A work's rating is its best-supported match (highest confidence, then most ratin
 - **gutenberg-id**: Open Library editions carry Project Gutenberg ids. The returned work is accepted only if its
   main title matches (exact → 0.98 with agreeing author / 0.9 without author data; ≥ 50 % word overlap → 0.9 /
   0.8) and it is rejected outright if the authors disagree.
-- **title-author** (fallback, 0.75): exact main title and the same author surname, and only if one work clearly
+- **title-author** (fallback, 0.75; also tried when the id match found an Open Library work with no ratings, which is
+  often a duplicate work record): exact main title and the same author surname, and only if one work clearly
   dominates (≥ 3× the editions of the next); generic one-word titles and author-less records are never searched.
 - Works without a match, or matched to a work with zero ratings, are **Unrated** – nothing is estimated.
 - **Weighted score** (Top rated sort): `(n·c·R + 25·m) / (n·c + 25)` where R is the average, n the count, c the
   match confidence and m the catalog-wide mean. Few ratings or a weaker match stay near the mean; unrated works sort last.
 
 Refresh: id lookups are repeated every 14 days per edition (oldest first, 900 batches max per run); the search
-fallback retries a book after 60 days; at most 500 searches per run.
+fallback retries a book after 60 days; at most 1,500 searches per run.
 
 ### Operations
 

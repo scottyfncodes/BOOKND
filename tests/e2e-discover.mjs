@@ -14,6 +14,15 @@ const check = (name, ok, detail = '') => {
 };
 const count = async (page) => Number(((await page.textContent('#result-count')) ?? '').replace(/,/g, '').match(/^(\d+)/)?.[1] ?? NaN);
 const settle = (page) => page.waitForFunction(() => !/Searching/.test(document.querySelector('#result-count')?.textContent ?? 'Searching'), null, { timeout: 30000 });
+/** Runs an action that starts a new search and waits for its result (the count line changes and stops searching). */
+async function apply(page, action) {
+  const before = await page.textContent('#result-count');
+  await action();
+  await page.waitForFunction((b) => {
+    const t = document.querySelector('#result-count')?.textContent ?? '';
+    return t !== b && !/Searching/.test(t);
+  }, before, { timeout: 30000 });
+}
 const titles = (page) => page.$$eval('.book-card .book-title', (els) => els.map((e) => e.textContent));
 
 const browser = await chromium.launch();
@@ -38,32 +47,27 @@ const keys = await page.$$eval('.book-card .book-open', (els) => els.map((e) => 
 check('Show more loads the next page with no repeats', new Set(keys).size === keys.length && keys.length > first.length, `${keys.length} cards`);
 
 // sorting is over the whole catalog
-await page.selectOption('select:has(option[value=title])', 'title');
-await settle(page);
+await apply(page, () => page.selectOption('#cat-sort', 'title'));
 const az = await titles(page);
 check('Title A–Z sorts the full catalog', (await count(page)) === all && az.length > 0, az.slice(0, 3).join(' | '));
-await page.selectOption('select:has(option[value=title])', 'rating');
-await settle(page);
+await apply(page, () => page.selectOption('#cat-sort', 'rating'));
 const firstRating = await page.textContent('.book-card .book-rating');
 check('Top rated starts with a rated book showing its count', /★\s*\d\.\d\s*·\s*[\d,]+/.test(firstRating ?? ''), firstRating ?? '');
 await page.screenshot({ path: `${OUT}/d2-top-rated-phone.png` });
 
 // rating filter
-await page.click('button.chip:text-matches("^Unrated")');
-await settle(page);
+await apply(page, () => page.click('button.chip:text-matches("^Unrated")'));
 const unrated = await count(page);
 const unratedLabels = await page.$$eval('.book-card .book-rating', (els) => els.map((e) => e.textContent));
 check('Unrated filter lists only unrated books', unratedLabels.length > 0 && unratedLabels.every((t) => /Unrated/.test(t ?? '')), `${unrated}`);
-await page.click('button.chip:text-matches("^Rated")');
-await settle(page);
+await apply(page, () => page.click('button.chip:text-matches("^Rated")'));
 const rated = await count(page);
 check('Rated + Unrated add up to the total', rated + unrated === all, `${rated} + ${unrated} = ${all}`);
-await page.click('.chip:has-text("Any rating")');
+await apply(page, () => page.click('.chip:has-text("Any rating")'));
 
 // search + dedup + Standard Ebooks preferred
 await page.fill('#cat-search', 'pride and prejudice');
-await page.press('#cat-search', 'Enter');
-await settle(page);
+await apply(page, () => page.press('#cat-search', 'Enter'));
 const pp = await titles(page);
 check('search finds Pride and Prejudice first', /pride and prejudice/i.test(pp[0] ?? ''), pp.slice(0, 3).join(' | '));
 check('Pride and Prejudice appears once (editions grouped)', pp.filter((t) => /^pride and prejudice$/i.test(t ?? '')).length === 1);

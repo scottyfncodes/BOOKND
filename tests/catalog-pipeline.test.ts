@@ -195,3 +195,24 @@ describe('rating matches (work-level, never guessed)', () => {
     expect(weightedRating(4.5, 100, 0.75, 3.8)!).toBeLessThan(weightedRating(4.5, 100, 0.98, 3.8)!);
   });
 });
+
+describe('collections and crowd-edited works do not swallow separate books', () => {
+  it('links a Standard Ebooks collection only to the cited source with the same title', () => {
+    const dialogues = pg({ key: 'se:plato/dialogues/benjamin-jowett', source: 'standard-ebooks', title: 'Dialogues', authorKeys: ['plato'], gutenbergIds: [1497, 1656, 9999] });
+    const groups = groupEditions([
+      dialogues,
+      pg({ key: 'gutenberg:1497', title: 'The Republic', authorKeys: ['plato'], gutenbergIds: [1497] }),
+      pg({ key: 'gutenberg:1656', title: 'Apology', authorKeys: ['plato'], gutenbergIds: [1656] }),
+      pg({ key: 'gutenberg:9999', title: 'Dialogues', authorKeys: ['plato'], gutenbergIds: [9999] }),
+    ]);
+    expect(groups.find((g) => g[0].key === dialogues.key)!.map((e) => e.key)).toEqual([dialogues.key, 'gutenberg:9999']);
+    expect(groups).toHaveLength(3);
+  });
+  it('ignores a provider work that lumps differently titled books together', () => {
+    const g = groupEditions(
+      [pg({ key: 'gutenberg:1', title: 'Euthyphro', authorKeys: ['plato'] }), pg({ key: 'gutenberg:2', title: 'Crito', authorKeys: ['plato'] })],
+      () => '/works/OL1W',
+    );
+    expect(g).toHaveLength(2);
+  });
+});

@@ -37,6 +37,7 @@ export function gutenbergEdition(rec: any): PipelineEdition;
 export function seSlugFromHomepage(h: string | null | undefined): string | null;
 export function parseStandardEbooksOpf(xml: string, slug: string): PipelineEdition;
 export function editionMatchKey(e: PipelineEdition): string | null;
+export function sameWorkTitle(a: string, b: string): boolean;
 export function groupEditions(editions: PipelineEdition[], providerWorkOf?: (e: PipelineEdition) => string | null): PipelineEdition[][];
 export function titleSimilarity(a: string, b: string): number;
 export function authorsAgree(keys: string[], names: string[] | undefined): boolean | null;

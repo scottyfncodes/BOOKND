@@ -314,7 +314,7 @@ export default function DiscoverPage() {
               </label>
               <label className="select-label">
                 <span className="sr-only">Language</span>
-                <select className="field" value={f?.lang ?? 'en'} onChange={(e) => update({ lang: e.target.value })}>
+                <select id="cat-lang" className="field" value={f?.lang ?? 'en'} onChange={(e) => update({ lang: e.target.value })}>
                   <option value="all">All languages</option>
                   {languages.map((l) => (
                     <option key={l.code} value={l.code}>
@@ -325,7 +325,7 @@ export default function DiscoverPage() {
               </label>
               <label className="select-label">
                 <span className="sr-only">Sort by</span>
-                <select className="field" value={sort} onChange={(e) => update({ sort: e.target.value as Sort })}>
+                <select id="cat-sort" className="field" value={sort} onChange={(e) => update({ sort: e.target.value as Sort })}>
                   {(Object.keys(SORT_LABEL) as Sort[])
                     .filter((s) => s !== 'relevance' || f?.q)
                     .map((s) => (
