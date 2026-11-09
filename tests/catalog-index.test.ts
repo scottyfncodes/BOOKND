@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { weightedRating } from '../scripts/catalog/lib.mjs';
-import { buildIndex, parseSearchParams, search, type SearchParams, type Snapshot, type SnapshotWork } from '@/lib/catalog-index';
+import { buildIndex, fold, parseSearchParams, search, type SearchParams, type Snapshot, type SnapshotWork } from '@/lib/catalog-index';
 
 function work(i: number, over: Partial<SnapshotWork> = {}): SnapshotWork {
   return {
@@ -142,4 +142,28 @@ describe('exact-title boost ignores an optional leading article', () => {
     expect(first('christmas carols')).toBe('Christmas Carols and Midsummer Songs');
     expect(search(idx, { ...base, q: 'picture of dorian gray' }).total).toBe(2);
   });
+});
+
+describe('fold fast path', () => {
+  // the original, Unicode-only fold: the fast path must give exactly the same result
+  const slow = (s: string) =>
+    s
+      .normalize('NFKD')
+      .replace(/\p{M}+/gu, '')
+      .toLowerCase()
+      .replace(/&/g, ' and ')
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .trim();
+  it.each([
+    'Pride & Prejudice',
+    'The “Picture” of Dorian Gray — a novel…',
+    'Don’t panic!',
+    'Les Misérables',
+    'Résumé « naïve » café',
+    'Война и мир',
+    '源氏物語',
+    'ﬁne ligature ½',
+    '  ',
+    '',
+  ])('%j', (s) => expect(fold(s)).toBe(slow(s)));
 });

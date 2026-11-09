@@ -126,7 +126,24 @@ export interface SearchResult {
 // ---------------------------------------------------------------------------------------------
 
 /** Case- and accent-insensitive text for matching; letters and digits of every script are kept (Greek, Cyrillic, CJK…). */
+// Plain ASCII needs no Unicode normalisation, and its letters and digits are just [a-z0-9]: the same result,
+// several times faster. Most catalog text is ASCII, and folding all of it is most of a cold start.
+// Typographic punctuation (’ “ ” — … and no-break spaces) only ever becomes a word break, so mapping it to a space
+// first lets most descriptions take the fast path too.
+const ASCII = /^[\x00-\x7f]*$/;
+const PUNCT = /[\u00a0\u00ab\u00bb\u2000-\u206f]/g;
 export function fold(s: string) {
+  if (!ASCII.test(s)) {
+    const t = s.replace(PUNCT, ' ');
+    if (ASCII.test(t)) s = t;
+  }
+  if (ASCII.test(s)) {
+    return s
+      .toLowerCase()
+      .replace(/&/g, ' and ')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  }
   return s
     .normalize('NFKD')
     .replace(/\p{M}+/gu, '')
@@ -154,15 +171,24 @@ function surname(name: string | undefined) {
   return parts.length ? `${parts[parts.length - 1]} ${parts.slice(0, -1).join(' ')}` : '￿';
 }
 
-interface Entry {
-  w: SnapshotWork;
-  title: string;
-  author: string;
-  subject: string;
-  desc: string;
-  titleExact: string;
-  langs: Set<string>;
-  genres: Set<string>;
+/**
+ * Descriptions are ~95% of the catalog's text, and folding them was most of a cold start. Browsing (no search
+ * terms, which is how Discover opens) never reads them, so each one is folded on first use instead.
+ */
+class Entry {
+  private d: string | undefined;
+  constructor(
+    readonly w: SnapshotWork,
+    readonly title: string,
+    readonly author: string,
+    readonly subject: string,
+    readonly titleExact: string,
+    readonly langs: Set<string>,
+    readonly genres: Set<string>,
+  ) {}
+  get desc() {
+    return (this.d ??= hay(this.w.d));
+  }
 }
 
 export interface CatalogIndex {
@@ -173,16 +199,18 @@ export interface CatalogIndex {
 }
 
 export function buildIndex(snap: Snapshot): CatalogIndex {
-  const entries: Entry[] = snap.works.map((w) => ({
-    w,
-    title: hay([w.t, ...w.e.map((e) => e.t ?? '')].join(' ')),
-    author: hay([...w.a, ...(w.tr ?? [])].join(' ')),
-    subject: hay([...w.s, ...w.g].join(' ')),
-    desc: hay(w.d),
-    titleExact: withoutArticle(fold(w.t)),
-    langs: new Set(w.l),
-    genres: new Set(w.g),
-  }));
+  const entries = snap.works.map(
+    (w) =>
+      new Entry(
+        w,
+        hay([w.t, ...w.e.map((e) => e.t ?? '')].join(' ')),
+        hay([...w.a, ...(w.tr ?? [])].join(' ')),
+        hay([...w.s, ...w.g].join(' ')),
+        withoutArticle(fold(w.t)),
+        new Set(w.l),
+        new Set(w.g),
+      ),
+  );
   const idx = entries.map((_, i) => i);
   const by = (cmp: (a: Entry, b: Entry) => number) => Uint32Array.from([...idx].sort((a, b) => cmp(entries[a], entries[b]) || a - b));
   const titles = entries.map((e) => sortTitle(e.w.t));
@@ -435,9 +463,28 @@ export async function getCatalog(): Promise<{ index: CatalogIndex; meta: Catalog
       }
     }
   }
-  if (!current && inflight) await inflight;
+  if (!current && inflight) {
+    await inflight;
+    // the first response no longer waits for descriptions; fold them while the instance is still awake
+    const loaded = current as { index: CatalogIndex } | null;
+    if (loaded) {
+      try {
+        after(() => warmDescriptions(loaded.index));
+      } catch {
+        // outside a request (tests, scripts): nothing to keep alive
+      }
+    }
+  }
   if (!current) throw new CatalogUnavailable('The catalog index is not available yet.');
   return current;
+}
+
+/** Folds every description in small slices, yielding between them so searches arriving meanwhile still answer. */
+async function warmDescriptions(index: CatalogIndex) {
+  for (let i = 0; i < index.entries.length; i += 2000) {
+    for (const e of index.entries.slice(i, i + 2000)) void e.desc;
+    await new Promise((r) => setImmediate(r));
+  }
 }
 
 /** Test hooks. */

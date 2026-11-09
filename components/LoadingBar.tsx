@@ -8,7 +8,8 @@ import { useEffect, useState } from 'react';
  */
 export function LoadingBar({ label = 'Gathering books…', covers }: { label?: string; covers?: { loaded: number; total: number } | null }) {
   const [shown, setShown] = useState(0.06);
-  const target = covers && covers.total > 0 ? 0.6 + 0.4 * (covers.loaded / covers.total) : covers ? 1 : null;
+  // never shows full: the bar is replaced by the shelf the moment the books are ready, so 100% would be a promise it can't keep
+  const target = covers ? (covers.total > 0 ? 0.6 + 0.35 * (covers.loaded / covers.total) : 0.95) : null;
 
   useEffect(() => {
     if (target !== null) {

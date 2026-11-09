@@ -16,7 +16,9 @@ export async function GET(req: NextRequest) {
   try {
     const { index } = await getCatalog();
     const result = search(index, params);
-    return NextResponse.json(result, { headers: { 'Cache-Control': 'public, s-maxage=600, stale-while-revalidate=3600' } });
+    // the catalog changes once a day: serve a cached answer at once and refresh it in the background, so a
+    // visitor never waits on a cold server for a page someone has asked for within the last day
+    return NextResponse.json(result, { headers: { 'Cache-Control': 'public, s-maxage=600, stale-while-revalidate=86400' } });
   } catch (err) {
     if (err instanceof CatalogUnavailable) {
       return NextResponse.json({ error: 'The full catalog is still loading. Please try again in a moment.', unavailable: true }, { status: 503 });
