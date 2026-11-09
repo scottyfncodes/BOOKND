@@ -435,7 +435,7 @@ export function titleSimilarity(a, b) {
 }
 
 /** Bump when matching rules change: every stored match is re-checked under the new rules. */
-export const MATCHER_VERSION = 3;
+export const MATCHER_VERSION = 4;
 
 /** Surname without vowels and soft letters, so transliterations agree: Dostoevsky / Dostoyevsky / Dostoievski. */
 function surnameSkeleton(s) {
@@ -537,8 +537,27 @@ export function judgeIdentifierMatch(edition, doc) {
  * Title-and-author search fallback: the work's main title (or an alternative title) must equal the edition's and
  * one of its authors must agree (any of their names); among the works that pass, one must clearly dominate (see choose()).
  */
+/** "— Volume 07", "Vol. 2 of 3", "(of 3)": one volume of a larger work (not "Henry IV, Part 1", which is a play). */
+const VOLUME_IN_TITLE = /\b(vol\.?|volume|tome)\s*(\d+|[ivxlc]+)\b|\(\s*of\s+\d+\s*\)/i;
+
+/**
+ * Open Library files some translations as works of their own, listing the translator among the authors
+ * ("The Odyssey" by Homer and Emily R. Wilson). For a translated edition, a work naming someone who is neither
+ * the edition's author nor its own translator describes another translation.
+ */
+function namesAnotherTranslator(edition, doc) {
+  if (!edition.translators?.length) return false;
+  const own = [...edition.authorKeys, ...edition.translators.map(authorKey)].map((k) => k.split(' ')[0]).filter(Boolean);
+  return (doc.author_name ?? []).some((n) => {
+    const s = authorKey(n).split(' ')[0];
+    return s && !own.some((o) => surnamesAgree(o, s));
+  });
+}
+
 export function judgeSearchMatch(edition, docs) {
   if (!edition.authorKeys.length) return { ok: false, reason: 'no-author' };
+  // a single volume must not borrow the whole work's rating through a title search
+  if (VOLUME_IN_TITLE.test(edition.title)) return { ok: false, reason: 'volume-of-work' };
   const want = mainTitleKey(searchTitle(edition.title));
   if (want.split(' ').length < 2 && want.length < 6) return { ok: false, reason: 'title-too-generic' };
   // a search is weaker evidence than an id link: the main title must be the same (spacing aside), so
@@ -550,6 +569,7 @@ export function judgeSearchMatch(edition, docs) {
   const pass = docs
     .filter((d) => [d.title ?? '', ...(d.alternative_title ?? [])].some(same))
     .filter((d) => authorsAgree(edition.authorKeys, providerAuthorNames(d)) === true)
+    .filter((d) => !namesAnotherTranslator(edition, d))
     .map((doc) => ({ doc, confidence: 0.75 }));
   const j = { ...choose(pass), method: 'title-author' };
   // A translation searched by its English title often finds a small English-titled record while the real work is

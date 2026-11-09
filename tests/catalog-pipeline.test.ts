@@ -303,6 +303,24 @@ describe('matching against real Open Library data', () => {
     // an untranslated book with a single, lone record keeps its real (small) rating
     expect(judgeSearchMatch(pg({ title: 'Arrowsmith', authorKeys: ['lewis s'] }), [{ key: '/works/OL51147W', title: 'Arrowsmith', author_name: ['Sinclair Lewis'], ratings_average: 3, ratings_count: 1, readinglog_count: 40 }]).ok).toBe(true);
   });
+  it("never gives a translation another translation's rating (The Odyssey, Butler vs Wilson)", () => {
+    const butler = pg({ key: 'gutenberg:1727', title: 'The Odyssey Rendered into English prose for the use of those who cannot read the original', authorKeys: ['homer'], translators: ['Samuel Butler'] });
+    const wilson = { key: '/works/OL17812254W', title: 'The Odyssey', author_name: ['Ὅμηρος', 'Emily R. Wilson'], author_alternative_name: ['Homer'], ratings_average: 3.89, ratings_count: 9, readinglog_count: 69 };
+    const homerOnly = { key: '/works/OL26446888W', title: 'The Odyssey', author_name: ['Ὅμηρος'], author_alternative_name: ['Homer'], ratings_average: 4, ratings_count: 1, readinglog_count: 171 };
+    expect(judgeSearchMatch(butler, [wilson]).ok).toBe(false);
+    // the remaining Homer-only record has a single rating: too thin for a translation
+    expect(judgeSearchMatch(butler, [wilson, homerOnly]).ok).toBe(false);
+    // the edition's own translator on the work is fine
+    const garnett = pg({ title: 'Crime and Punishment', authorKeys: ['dostoyevsky f'], translators: ['Constance Garnett'] });
+    expect(judgeSearchMatch(garnett, [{ key: '/works/X', title: 'Crime and Punishment', author_name: ['Fyodor Dostoyevsky', 'Constance Garnett'], ratings_count: 30, readinglog_count: 10 }]).ok).toBe(true);
+    expect(judgeSearchMatch(garnett, [{ key: '/works/Y', title: 'Crime and Punishment', author_name: ['Michael R. Katz', 'Фёдор Михайлович Достоевский'], author_alternative_name: ['Dostoyevsky'], ratings_count: 30, readinglog_count: 10 }]).ok).toBe(false);
+  });
+  it('does not rate a single volume through a title search', () => {
+    const vol = pg({ title: 'A Tramp Abroad — Volume 07', authorKeys: ['twain m'] });
+    expect(judgeSearchMatch(vol, [{ key: '/works/OL53918W', title: 'A Tramp Abroad', author_name: ['Mark Twain'], ratings_count: 12, readinglog_count: 50 }]).reason).toBe('volume-of-work');
+    const play = pg({ title: 'King Henry IV, Part 1', authorKeys: ['shakespeare w'] });
+    expect(judgeSearchMatch(play, [{ key: '/works/OL1W', title: 'King Henry IV, Part 1', author_name: ['William Shakespeare'], ratings_count: 12, readinglog_count: 50 }]).ok).toBe(true);
+  });
   it('treats volumes as different books and cleans titles for searching', () => {
     expect(searchTitle('The Odyssey Rendered into English prose for the use of those who cannot read the original')).toBe('The Odyssey');
     expect(searchTitle('The Adventures of Sherlock Holmes [12 stories]')).toBe('The Adventures of Sherlock Holmes');
