@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import Script from 'next/script';
 import './globals.css';
 import { AppShell } from '@/components/AppShell';
 
@@ -44,6 +45,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           Skip to content
         </a>
         <AppShell>{children}</AppShell>
+        {/* HaveAnApp Pulse: anonymous, cookieless usage counts. */}
+        <Script src="https://haveanapp-pulse-collect.vercel.app/p.js" data-app="booknd" strategy="afterInteractive" />
       </body>
     </html>
   );
