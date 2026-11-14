@@ -1,12 +1,15 @@
 import type { NextConfig } from 'next';
 
+// HaveAnApp Pulse (anonymous page counts): loads p.js from and sends beacons to the collector.
+const PULSE = 'https://haveanapp-pulse-collect.vercel.app';
+
 const csp = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : ''}`,
+  `script-src 'self' 'unsafe-inline' ${PULSE}${process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : ''}`,
   "style-src 'self' 'unsafe-inline' blob:",
   "img-src 'self' blob: data:",
   "font-src 'self' data: blob:",
-  "connect-src 'self' blob: data:",
+  `connect-src 'self' blob: data: ${PULSE}`,
   "frame-src 'self' blob:",
   "worker-src 'self'",
   "object-src 'none'",
