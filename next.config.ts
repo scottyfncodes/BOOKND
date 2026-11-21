@@ -2,11 +2,12 @@ import type { NextConfig } from 'next';
 
 const csp = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : ''}`,
+  // HaveAnApp Pulse: the tracker script and its beacons (see app/layout.tsx).
+  `script-src 'self' 'unsafe-inline' https://haveanapp-pulse-collect.vercel.app${process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : ''}`,
   "style-src 'self' 'unsafe-inline' blob:",
   "img-src 'self' blob: data:",
   "font-src 'self' data: blob:",
-  "connect-src 'self' blob: data:",
+  "connect-src 'self' blob: data: https://haveanapp-pulse-collect.vercel.app",
   "frame-src 'self' blob:",
   "worker-src 'self'",
   "object-src 'none'",

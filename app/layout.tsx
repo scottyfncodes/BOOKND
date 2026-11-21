@@ -38,6 +38,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <link rel="preload" href="/fonts/libre-baskerville-400.woff2" as="font" type="font/woff2" crossOrigin="" />
         <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossOrigin="" />
+        {/* HaveAnApp Pulse: anonymous, cookieless usage counts, plus a random returning-visitor id kept on this device for this app. */}
+        <script defer src="https://haveanapp-pulse-collect.vercel.app/p.js" data-app="booknd" data-returning="on" />
       </head>
       <body>
         <a className="skip-link" href="#main">
